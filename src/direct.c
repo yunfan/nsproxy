@@ -29,6 +29,10 @@ struct proxy_direct {
     /* user */
     userev_fn_t *userev;
     void *userp;
+
+    /* target */
+    char *addr;
+    uint16_t port;
 };
 
 /* epoll event callback, just forward event to user */
@@ -80,6 +84,7 @@ static void direct_put(struct proxy *proxy)
     struct proxy_direct *self = container_of(proxy, struct proxy_direct, ops);
     if (--self->refcnt == 0) {
         skutils_close_unreg(&self->info, self->loop, &self->sfd);
+        free(self->addr);
         free(self);
     }
 }
@@ -101,9 +106,15 @@ direct_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
 {
     struct proxy_direct *self;
 
-    loglv(3, "direct_create_internel: creating a new struct conn_direct");
+    loglv(3, "direct_create_impl: creating new struct conn_direct for %s:%u/%s",
+             addr, (unsigned)port, (type == SOCK_DGRAM) ? "udp" : "tcp");
+
+    if (strlen(addr) > SERVNAME_MAXLEN)
+        return NULL;
 
     if ((self = calloc(1, sizeof(struct proxy_direct))) == NULL)
+        oom();
+    if ((self->addr = strdup(addr)) == NULL)
         oom();
 
     /* init */
@@ -116,14 +127,17 @@ direct_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
     self->refcnt = 1;
     self->userev = userev;
     self->userp = userp;
+    self->port = port;
 
-    /* perform connect */
+    /* connect to target address directly */
     self->sfd = skutils_connect(&self->info, addr, port, type);
     if (self->sfd < 0) {
+        free(self->addr);
         free(self);
         return NULL;
     }
 
+    /* waiting for connect completed */
     self->events = EPOLLOUT | EPOLLIN;
     loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, self->events,
                    &self->epcb);
@@ -139,7 +153,7 @@ direct_tcp_create(struct loopctx *loop, userev_fn_t *userev, void *userp,
 {
     struct proxy_direct *self =
         direct_create_impl(loop, userev, userp, SOCK_STREAM, addr, port);
-    return &self->ops;
+    return self ? &self->ops : NULL;
 }
 
 /* public function,
@@ -150,5 +164,5 @@ direct_udp_create(struct loopctx *loop, userev_fn_t *userev, void *userp,
 {
     struct proxy_direct *self =
         direct_create_impl(loop, userev, userp, SOCK_DGRAM, addr, port);
-    return &self->ops;
+    return self ? &self->ops : NULL;
 }

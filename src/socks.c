@@ -727,18 +727,23 @@ static const struct proxy_ops socks_ops = {
 /* used for internal only */
 static struct proxy_socks *
 socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
-                  int type, const char *addr, uint16_t port)
+                  int type, const char *addr, uint16_t port,
+                  struct proxy_socks *as)
 {
     struct proxy_socks *self;
     struct nspconf *conf = current_nspconf();
     uint16_t proxy_port;
     int socktype = (type == UDP_FORWARD) ? SOCK_DGRAM : SOCK_STREAM;
 
-    loglv(3, "socks_create_impl: creating a new struct conn_socks");
+    loglv(3, "socks_create_impl: creating a new struct conn_socks for %s:%u/%s",
+             addr, (unsigned)port, (type == UDP_FORWARD) ? "udp" : "tcp");
+
+    if (strlen(addr) > SERVNAME_MAXLEN)
+        return NULL;
 
     if ((self = calloc(1, sizeof(struct proxy_socks))) == NULL)
         oom();
-    if ((self->hsbuff = buff_calloc(SOCKS_HS_BUFF)) == NULL)
+    if ((self->addr = strdup(addr)) == NULL)
         oom();
 
     /* init */
@@ -750,34 +755,44 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
     self->refcnt = 1;
     self->userev = userev;
     self->userp = userp;
+    self->port = port;
     self->type = type;
+    self->relay = NULL;
 
-    /* perform connect */
-    loglv(3, "socks_create_impl: connecting %s:%u/%s",
-             addr, (unsigned)port, self->type == TCP_FORWARD ? "tcp" : "udp");
+    if (type == UDP_FORWARD) {
+        /* create socket and bind to relay server */
+        self->sfd = skutils_connect(&self->info, as->relay->addr,
+                                    as->relay->port, SOCK_DGRAM);
+        if (self->sfd < 0) {
+            free(self->hsbuff);
+            free(self->addr);
+            free(self);
+            return NULL;
+        }
+        self->phase = PHASE_FORWARDING;
 
-    if (strlen(addr) >= SERVNAME_MAXLEN) {
-        free(self);
-        return NULL;
-    }
+        self->events = EPOLLOUT | EPOLLIN;
+        loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, self->events,
+                       &self->epcb);
+    } else {
+        if ((self->hsbuff = buff_calloc(SOCKS_HS_BUFF)) == NULL)
+            oom();
 
-    if (type != UDP_FORWARD) {
-        /* handshake with proxy server */
+        /* connect to proxy server */
         self->sfd = skutils_connect(&self->info, conf->proxysrv,
                                     conf->proxyport, socktype);
         if (self->sfd < 0) {
             free(self->hsbuff);
+            free(self->addr);
             free(self);
             return NULL;
         }
+
+        /* wait to handshake */
         self->phase = PHASE_SEND_METHOD;
         loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, EPOLLOUT,
                        &self->epcb);
     }
-
-    self->addr = strdup(addr);
-    self->port = port;
-    self->relay = NULL;
 
     return self;
 }
@@ -787,9 +802,18 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
 struct proxy *socks_tcp_create(struct loopctx *loop, userev_fn_t *userev,
                                void *userp, const char *addr, uint16_t port)
 {
-    struct proxy_socks *self
-        = socks_create_impl(loop, userev, userp, TCP_FORWARD, addr, port);
-    return &self->ops;
+    struct proxy_socks *self =
+        socks_create_impl(loop, userev, userp, TCP_FORWARD, addr, port, NULL);
+    return self ? &self->ops : NULL;
+}
+
+/* create a associate connection for udp forward */
+struct proxy *socks_assoc_create(struct loopctx *loop, userev_fn_t *userev,
+                                 void *userp)
+{
+    struct proxy_socks *self =
+        socks_create_impl(loop, userev, userp, UDP_ASSOCIATE, "0.0.0.0", 0, NULL);
+    return self ? &self->ops : NULL;
 }
 
 /* create a udp connection
@@ -804,35 +828,7 @@ struct proxy *socks_udp_create(struct loopctx *loop, userev_fn_t *userev,
     if (as->phase != PHASE_FORWARDING || as->relay == NULL)
         return NULL;
 
-    self = socks_create_impl(loop, userev, userp, UDP_FORWARD, addr, port);
-    if (self == NULL)
-        return NULL;
+    self = socks_create_impl(loop, userev, userp, UDP_FORWARD, addr, port, as);
 
-    /* create socket and bind to relay server */
-    self->sfd = skutils_connect(&self->info, as->relay->addr,
-                                as->relay->port, SOCK_DGRAM);
-    if (self->sfd < 0) {
-        free(self->addr);
-        free(self->hsbuff);
-        free(self);
-        return NULL;
-    }
-    self->phase = PHASE_FORWARDING;
-
-    self->events = EPOLLOUT | EPOLLIN;
-    loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, self->events,
-                   &self->epcb);
-    free(self->hsbuff);
-    self->hsbuff = NULL;
-
-    return &self->ops;
-}
-
-/* create a associate connection for udp forward */
-struct proxy *socks_assoc_create(struct loopctx *loop, userev_fn_t *userev,
-                                 void *userp)
-{
-    struct proxy_socks *self
-        = socks_create_impl(loop, userev, userp, UDP_ASSOCIATE, "0.0.0.0", 0);
-    return &self->ops;
+    return self ? &self->ops : NULL;
 }

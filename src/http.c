@@ -349,11 +349,17 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
     struct proxy_http *self;
     struct nspconf *conf = current_nspconf();
 
-    loglv(3, "http_tcp_create: creating a new struct conn_http");
+    loglv(3, "http_tcp_create: creating a new struct conn_http for %s:%u/tcp",
+             addr, (unsigned)port);
+
+    if (strlen(addr) > SERVNAME_MAXLEN)
+        return NULL;
 
     if ((self = calloc(1, sizeof(struct proxy_http))) == NULL)
         oom();
     if ((self->hsbuff = buff_calloc(HTTP_HS_BUFF)) == NULL)
+        oom();
+    if ((self->addr = strdup(addr)) == NULL)
         oom();
 
     /* init */
@@ -365,19 +371,14 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
     self->refcnt = 1;
     self->userev = userev;
     self->userp = userp;
+    self->port = port;
 
     /* perform connect */
-    loglv(3, "http_tcp_create: connecting %s:%u/tcp", addr, (unsigned)port);
-
-    if (strlen(addr) >= SERVNAME_MAXLEN) {
-        free(self);
-        return NULL;
-    }
-
     self->sfd = skutils_connect(&self->info, conf->proxysrv, conf->proxyport,
                                 SOCK_STREAM);
     if (self->sfd < 0) {
         free(self->hsbuff);
+        free(self->addr);
         free(self);
         return NULL;
     }
@@ -385,9 +386,6 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
     /* good, start handshake */
     self->phase = PHASE_SEND_REQUEST;
     loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, EPOLLOUT, &self->epcb);
-
-    self->addr = strdup(addr);
-    self->port = port;
 
     return &self->ops;
 }
