@@ -571,12 +571,12 @@ static void tcp_lwip_err(void *arg, err_t err)
 }
 
 /* handle events in in struct proxy, for UDP associate connection */
-static void udp_assoc_io_event(void *userp, unsigned int events)
+static void udp_assoc_io_event(void *userp, unsigned int events, int status)
 {
     struct corectx *core = userp;
     struct udp_forward *fwd;
 
-    if (events != EPOLLOUT) {
+    if (events != EPOLLOUT || status < 0) {
         /* must be some error */
         int expbackoff = core->assocretries <= 5 ? core->assocretries : 5;
         proxy_put(core->udpassoc);
@@ -595,13 +595,13 @@ static void udp_assoc_io_event(void *userp, unsigned int events)
 }
 
 /* handle event occured in connection connected to proxy server */
-static void udp_proxy_io_event(void *userp, unsigned int events)
+static void udp_proxy_io_event(void *userp, unsigned int events, int status)
 {
     struct udp_forward *fwd = userp;
     err_t err = ERR_OK;
 
     /* UDP no need to handshake, should not report this value */
-    assert(events != ~0u);
+    assert(status >= 0);
 
     if (!err && (events & EPOLLIN))
         err = udp_proxy_input(fwd);
@@ -614,13 +614,13 @@ static void udp_proxy_io_event(void *userp, unsigned int events)
 }
 
 /* handle events occured in connection connected to proxy server */
-static void tcp_proxy_io_event(void *userp, unsigned int events)
+static void tcp_proxy_io_event(void *userp, unsigned int events, int status)
 {
     struct tcp_forward *fwd = userp;
     err_t err = ERR_OK;
 
     /* handshake with proxy server failed */
-    if (events == ~0u) {
+    if (status < 0) {
         tcp_forward_destroy(fwd, 1);
         return;
     }

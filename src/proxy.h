@@ -73,4 +73,4 @@ static inline void proxy_put(struct proxy *proxy)
 /* events callback function
    called when events occurs on this connection
  */
-typedef void (userev_fn_t)(void *userp, unsigned int events);
+typedef void (userev_fn_t)(void *userp, unsigned int events, int status);

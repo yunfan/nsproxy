@@ -124,7 +124,7 @@ static void http_handshake_input(struct proxy_http *self)
     if (nread <= 0) {
         if (nread == 0 || errno != EAGAIN) {
             http_handshake_perror(self, nread == -1 ? errno : 0);
-            self->userev(self->userp, ~0u);
+            self->userev(self->userp, 0, -1);
         }
         return;
     }
@@ -152,7 +152,7 @@ static void http_handshake_input(struct proxy_http *self)
         if (buff->size == buff->capacity - 1) {
             loglv(0, "Proxy server returned a header that is too large "
                      "during the handshake.");
-            self->userev(self->userp, ~0u);
+            self->userev(self->userp, 0, -1);
         }
         /* if not failed, wait for rest handshake message */
         return;
@@ -162,7 +162,7 @@ static void http_handshake_input(struct proxy_http *self)
     if (sscanf(buff->data, "HTTP/1.%c %d", &vermin, &code) != 2) {
         loglv(0, "Proxy server returned invalid HTTP response header during "
                  "handshake");
-        self->userev(self->userp, ~0u);
+        self->userev(self->userp, 0, -1);
         return;
     }
     if (code != 200) {
@@ -172,7 +172,7 @@ static void http_handshake_input(struct proxy_http *self)
         } else {
             loglv(0, "Proxy server returned HTTP error %d", code);
         }
-        self->userev(self->userp, ~0u);
+        self->userev(self->userp, 0, -1);
         return;
     }
 
@@ -237,7 +237,7 @@ static void http_handshake_output(struct proxy_http *self)
     if (nsent == -1) {
         if (errno != EAGAIN) {
             http_handshake_perror(self, errno);
-            self->userev(self->userp, ~0u);
+            self->userev(self->userp, 0, -1);
         }
         return;
     }
@@ -261,7 +261,7 @@ static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
 
     /* we don't care events after handshaked, just forward event to user */
     if (self->phase == PHASE_FORWARDING) {
-        self->userev(self->userp, events);
+        self->userev(self->userp, events, 0);
         return;
     }
 

@@ -83,7 +83,8 @@ static void tcpdns_worker_destroy(struct tcpdns_worker *worker)
 }
 
 /* handle event occured in connection to DNS */
-static void tcpdns_worker_handle_event(void *userp, unsigned int event)
+static void tcpdns_worker_handle_event(void *userp, unsigned int event,
+                                       int status)
 {
     struct tcpdns_worker *worker = userp;
     struct proxy *proxy = worker->proxy;
@@ -141,7 +142,7 @@ static void tcpdns_master_epcb_events(struct epcb_ops *epcb, unsigned events)
 {
     struct proxy_tcpdns *master =
         container_of(epcb, struct proxy_tcpdns, evfdepcb);
-    master->userev(master->userp, events);
+    master->userev(master->userp, events, 0);
 }
 
 /* empty impl for struct proxy :: shutdown */
