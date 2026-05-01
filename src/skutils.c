@@ -44,11 +44,8 @@ int skutils_connect(struct skinfo *info, const char *addr, uint16_t port,
         }
     }
 
-    snprintf(info->desc, sizeof(info->desc), "%s:%u/%s", addr,
-             (unsigned)port, type == SOCK_STREAM ? "tcp" : "udp");
-
-    loglv(1, "%s %s", type == SOCK_STREAM ? "Forwarding" : "Connecting",
-             info->desc);
+    loglv(1, "%s %s:%u/%s", type == SOCK_STREAM ? "Connecting" : "Forwarding",
+             info->addr, (unsigned)info->port, info->proto);
     freeaddrinfo(ai);
     return sfd;
 }
@@ -83,7 +80,8 @@ ssize_t skutils_send(struct skinfo *info, int sfd, const char *data,
 
     info->nsent += nsent;
 
-    loglv(2, "--- send %zd bytes via %s", nsent, info->desc);
+    loglv(2, "--- %zd bytes sent to %s:%u/%s", nsent, info->addr,
+             (unsigned)info->port, info->proto);
     return nsent;
 }
 
@@ -96,7 +94,8 @@ ssize_t skutils_sendmsg(struct skinfo *info, int sfd, struct msghdr *msg)
 
     info->nsent += nsent;
 
-    loglv(2, "--- send %zd bytes via %s", nsent, info->desc);
+    loglv(2, "--- %zd bytes sent to %s:%u/%s", nsent, info->addr,
+             (unsigned)info->port, info->proto);
     return nsent;
 }
 
@@ -109,7 +108,8 @@ ssize_t skutils_recv(struct skinfo *info, int sfd, char *data, size_t size)
 
     info->nread += nread;
 
-    loglv(2, "+++ recv %zd bytes via %s", nread, info->desc);
+    loglv(2, "+++ %zd bytes received from %s:%u/%s", nread, info->addr,
+             (unsigned)info->port, info->proto);
     return nread;
 }
 
@@ -125,23 +125,27 @@ int skutils_shutdown(struct skinfo *info, struct loopctx *loop, int *sfd,
             return -errno;
     }
 
-    loglv(2, "... shutdown %s", info->desc);
+    loglv(2, "... shutdown %s:%u/%s", info->addr, (unsigned)info->port,
+             info->proto);
     return 0;
 }
 
 void skutils_close_unreg(struct skinfo *info, struct loopctx *loop, int *sfd)
 {
+    int err;
+
     if (*sfd == -1)
         return;
 
-    if (loop_epoll_ctl(loop, EPOLL_CTL_DEL, *sfd, 0, NULL) < 0)
-        loglv(0, "skutils_close_unreg: remove fd from epoll failed");
+    if ((err = loop_epoll_ctl(loop, EPOLL_CTL_DEL, *sfd, 0, NULL)) < 0)
+        if (err != -ENOENT)
+            loglv(0, "skutils_close_unreg: remove fd from epoll failed");
 
     if (close(*sfd) == -1)
         loglv(0, "skutils_close_unreg: close fd failed: %s", strerror(errno));
 
     *sfd = -1;
 
-    loglv(1, "Closed %s (sent %zu, recieved %zu bytes)",
-             info->desc, info->nsent, info->nread);
+    loglv(1, "Closed %s:%u/%s (sent %zu, recieved %zu bytes)", info->addr,
+             (unsigned)info->port, info->proto, info->nsent, info->nread);
 }

@@ -53,7 +53,7 @@ static int sigfd_handler(struct loopctx *loop)
         return -1;
     } else if (errno == ECHILD) {
         /* all exited, exit nsproxy */
-        loglv(1, "All child exited, nsproxy is closing. Bye ~");
+        loglv(1, "All child exited, cleaning ...");
         return exitcode;
     } else {
         loglv(3, "waitpid() failed: %s", strerror(errno));
@@ -131,12 +131,12 @@ int loop_run(struct loopctx *loop)
 int loop_epoll_ctl(struct loopctx *loop, int op, int fd, unsigned events,
                    struct epcb_ops *epcb)
 {
-    int err;
     struct epoll_event ev;
 
     ev.events = events;
     ev.data.ptr = epcb;
-    if ((err = epoll_ctl(loop->epfd, op, fd, &ev)) == -1) {
+    if (epoll_ctl(loop->epfd, op, fd, &ev) == -1) {
+        int ret = -errno;
         if (errno == EEXIST) {
             loglv(3, "loop_epoll_ctl: fd %d is registered already", fd);
         } else if (errno == ENOENT) {
@@ -145,7 +145,8 @@ int loop_epoll_ctl(struct loopctx *loop, int op, int fd, unsigned events,
             fprintf(stderr, "epoll_ctl(%d) failed: %s\n", op, strerror(errno));
             abort();
         }
+        return ret;
     }
 
-    return err;
+    return 0;
 }

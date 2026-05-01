@@ -18,7 +18,6 @@ struct proxy_direct {
     struct epcb_ops epcb;
 
     /* socket */
-    struct skinfo info;
     int sfd;
     int stype;
     unsigned int events;
@@ -33,6 +32,9 @@ struct proxy_direct {
     /* target */
     char *addr;
     uint16_t port;
+
+    /* info */
+    struct skinfo info;
 };
 
 /* epoll event callback, just forward event to user */
@@ -128,6 +130,9 @@ direct_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
     self->userev = userev;
     self->userp = userp;
     self->port = port;
+    self->info.proto = type == SOCK_STREAM ? "tcp" : "udp";
+    self->info.addr = self->addr;
+    self->info.port = self->port;
 
     /* connect to target address directly */
     self->sfd = skutils_connect(&self->info, addr, port, type);

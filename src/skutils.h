@@ -17,9 +17,13 @@ struct buff {
 })
 
 struct skinfo {
-    char desc[64];
+    /* for stat */
     size_t nsent;
     size_t nread;
+    /* for display only */
+    const char *proto;
+    const char *addr;
+    uint16_t port;
 };
 
 /* Create socket fd and connect to addr:port, with log prints

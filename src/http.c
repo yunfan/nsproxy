@@ -74,7 +74,6 @@ struct proxy_http {
     struct epcb_ops epcb;
 
     /* socket */
-    struct skinfo info;
     int sfd;
     unsigned int events;
 
@@ -88,6 +87,9 @@ struct proxy_http {
     /* target */
     char *addr;
     uint16_t port;
+
+    /* info */
+    struct skinfo info;
 
     /* handshake */
     int phase;
@@ -177,7 +179,7 @@ static void http_handshake_input(struct proxy_http *self)
     }
 
     self->phase = PHASE_FORWARDING;
-    loglv(1, "Connected %s:%u/tcp", self->addr, (unsigned)self->port);
+    loglv(2, "... handshaked %s:%u/tcp", self->addr, (unsigned)self->port);
 
     /* good, handshake finish, listen and forward epoll event for user */
     self->events = EPOLLOUT | EPOLLIN;
@@ -372,6 +374,9 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
     self->userev = userev;
     self->userp = userp;
     self->port = port;
+    self->info.proto = "tcp";
+    self->info.addr = self->addr;
+    self->info.port = self->port;
 
     /* perform connect */
     self->sfd = skutils_connect(&self->info, conf->proxysrv, conf->proxyport,

@@ -71,7 +71,6 @@ struct proxy_socks {
     struct epcb_ops epcb;
 
     /* socket */
-    struct skinfo info;
     int sfd;
     unsigned int events;
 
@@ -85,6 +84,9 @@ struct proxy_socks {
     /* target */
     char *addr;
     uint16_t port;
+
+    /* info */
+    struct skinfo info;
 
     /* handshake */
     int type; /* TCP_FORWARD / UDP_FORWARD / UDP_ASSOCIATE */
@@ -546,7 +548,7 @@ static void socks_handshake_input(struct proxy_socks *self)
         }
 
         self->phase = PHASE_FORWARDING;
-        loglv(1, "Connected %s:%u/tcp", self->addr, (unsigned)self->port);
+        loglv(2, "... handshaked %s:%u", self->addr, (unsigned)self->port);
     }
 
     /* clear input buffer */
@@ -758,6 +760,9 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
     self->port = port;
     self->type = type;
     self->relay = NULL;
+    self->info.proto = self->type == TCP_FORWARD ? "tcp" : "udp";
+    self->info.addr = self->addr;
+    self->info.port = self->port;
 
     if (type == UDP_FORWARD) {
         /* create socket and bind to relay server */
