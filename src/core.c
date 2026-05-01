@@ -22,9 +22,9 @@
 #include "lwip/ip6_addr.h"
 
 #include "direct.h"
-#include "dns.h"
 #include "http.h"
 #include "socks.h"
+#include "tcpdns.h"
 
 struct tcp_forward {
     struct corectx *core;
@@ -671,8 +671,7 @@ err_t core_udp_new(struct udp_pcb *pcb)
     if (is_gateway(&core->tunif, &pcb->local_ip) && pcb->local_port == 53
         && conf->dnstype != DNS_REDIR_OFF) {
         if (conf->dnstype == DNS_REDIR_TCP)
-            fwd->proxy = tcpdns_create(core->loop, &udp_proxy_io_event, fwd,
-                                       conf->dnssrv, conf->dnsport);
+            fwd->proxy = tcpdns_create(core->loop, &udp_proxy_io_event, fwd);
         else
             fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
                                            conf->dnssrv, conf->dnsport);

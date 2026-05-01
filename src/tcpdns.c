@@ -1,4 +1,4 @@
-#include "dns.h"
+#include "tcpdns.h"
 
 #include <arpa/inet.h>
 #include <endian.h>
@@ -17,15 +17,21 @@ struct tcpdns_worker;
 
 struct proxy_tcpdns {
     struct proxy ops;
-    struct loopctx *loop;
 
+    /* loop */
+    struct loopctx *loop;
+    struct epcb_ops evfdepcb;
+
+    /* eventfd, receive worker done event */
+    int evfd;
+    unsigned int events;
+
+    /* rc */
     int refcnt;
 
+    /* user */
     userev_fn_t *userev;
     void *userp;
-
-    char *addr;
-    uint16_t port;
 
     /* user may initiate multiple queries on a single pseudo UDP connection, so
        there is multiple workers, each worker open a single TCP connection for
@@ -34,12 +40,6 @@ struct proxy_tcpdns {
        query
     */
     struct tcpdns_worker *workers;
-
-    /* receive worker done event */
-    int evfd;
-    struct epcb_ops evfdepcb;
-
-    unsigned int events;
 };
 
 struct tcpdns_worker {
@@ -52,7 +52,7 @@ struct tcpdns_worker {
     char buffer[4096];
     ssize_t nbuffer;
 
-    int done;
+    uint8_t done;
 };
 
 /* destory, and remove from workers list */
@@ -198,15 +198,15 @@ static ssize_t tcpdns_send(struct proxy *proxy, const char *data, size_t size)
     if (conf->proxytype == PROXY_SOCKS5)
         worker->proxy =
             socks_tcp_create(master->loop, &tcpdns_worker_handle_event, worker,
-                             master->addr, master->port);
+                             conf->dnssrv, conf->dnsport);
     else if (conf->proxytype == PROXY_HTTP)
         worker->proxy =
             http_tcp_create(master->loop, &tcpdns_worker_handle_event, worker,
-                            master->addr, master->port);
+                            conf->dnssrv, conf->dnsport);
     else
-        worker->proxy = direct_tcp_create(master->loop,
-                                          &tcpdns_worker_handle_event, worker,
-                                          master->addr, master->port);
+        worker->proxy =
+            direct_tcp_create(master->loop, &tcpdns_worker_handle_event, worker,
+                              conf->dnssrv, conf->dnsport);
 
     /* insert to front of worker list */
     worker->prev = NULL;
@@ -271,7 +271,6 @@ static void tcpdns_destroy_internal(struct proxy_tcpdns *master)
             abort();
         }
 
-    free(master->addr);
     free(master);
 }
 
@@ -305,7 +304,7 @@ static const struct proxy_ops dns_ops = {
    used for handle DNS request represented in datagrams and forward to a
    TCP nameserver */
 struct proxy *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
-                             void *userp, const char *addr, uint16_t port)
+                            void *userp)
 {
     struct proxy_tcpdns *master;
 
@@ -314,28 +313,20 @@ struct proxy *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
     if ((master = calloc(1, sizeof(struct proxy_tcpdns))) == NULL)
         oom();
 
+    /* init */
     master->ops.ops = &dns_ops;
+    master->loop = loop;
     master->evfdepcb.on_epoll_events = &tcpdns_master_epcb_events;
-
+    master->evfd  = -1;
+    master->events = 0;
     master->refcnt = 1;
     master->userev = userev;
     master->userp = userp;
 
-    master->loop = loop;
-
-    /* perform connect */
-    if (strlen(addr) >= SERVNAME_MAXLEN) {
-        free(master);
-        return NULL;
-    }
-
-    master->addr = strdup(addr);
-    master->port = port;
-
     master->evfd = eventfd(0, EFD_SEMAPHORE | EFD_NONBLOCK | EFD_CLOEXEC);
     if (master->evfd  == -1) {
-        perror("eventfd()");
-        abort();
+        free(master);
+        return NULL;
     }
 
     master->events = EPOLLOUT | EPOLLIN;

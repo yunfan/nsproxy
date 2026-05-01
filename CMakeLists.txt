@@ -32,7 +32,7 @@ add_executable(nsproxy
     src/direct.c
     src/socks.c
     src/http.c
-    src/dns.c
+    src/tcpdns.c
 )
 
 target_include_directories(nsproxy PRIVATE
