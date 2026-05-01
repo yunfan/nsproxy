@@ -575,17 +575,23 @@ static void udp_assoc_io_event(void *userp, unsigned int events, int status)
 {
     struct corectx *core = userp;
     struct udp_forward *fwd;
+    int cdexp; 
 
     if (events != EPOLLOUT || status < 0) {
-        /* must be some error */
-        int expbackoff = core->assocretries <= 5 ? core->assocretries : 5;
+        /* UDP_ASSOCIATE failed, remove this connection */
         proxy_put(core->udpassoc);
         core->udpassoc = NULL;
         core->assocready = 0;
-        core->assoccd = 1 << expbackoff; /* exponet backoff for re-associate */
+
+        /* also remove all UDP_FORWARD connections */
         while (core->udplst)
             udp_forward_destroy(core->udplst);
+
+        /* set countdown, timer will re-associate after it expires */
+        cdexp = core->assocretries <= 5 ? core->assocretries : 5;
+        core->assoccd = 1 << cdexp; /* exponet backoff */
     } else {
+        /* UDP_ASSOCIATE succeed */
         proxy_evctl(core->udpassoc, EPOLLOUT, 0);
         core->assocready = 1;
         core->assocretries = 0;

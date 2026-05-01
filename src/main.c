@@ -613,7 +613,7 @@ int main(int argc, char *argv[])
         case 'H':
             ishttp = 1;
             break;
-        case 'D':
+        case 'D': /* un-documented feature */
             isdirect = 1;
             break;
         case '6':

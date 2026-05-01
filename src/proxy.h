@@ -20,7 +20,9 @@ struct proxy {
 };
 
 /* shutdown function
-   argument how is same as shutdown(2), mostly used for TCP half-close
+   'how' is same as shutdown(2), mostly used for TCP half-close
+   if 'rst' set, the connection will be forcefully closed.
+   return 0 if no error, or -errno if error
 */
 static inline int proxy_shutdown(struct proxy *proxy, int how, int rst)
 {
@@ -28,8 +30,9 @@ static inline int proxy_shutdown(struct proxy *proxy, int how, int rst)
 }
 
 /* event control funcion
-   argument events is same as epoll_ctl(2)
-   argument enable indicate bits contain in event should be set or unset
+   'events' is same as epoll_ctl(2)
+   'enable' indicate bits contain in event should be set or unset
+   return 0 if no error, or -errno if error
 */
 static inline int proxy_evctl(struct proxy *proxy, unsigned int events,
                                int enable)
@@ -72,5 +75,8 @@ static inline void proxy_put(struct proxy *proxy)
 
 /* events callback function
    called when events occurs on this connection
+   'events' is same as epoll_wait(2)
+   'status' indicate errors in handshake, which is 0 if no error, or negative
+   number if error
  */
 typedef void (userev_fn_t)(void *userp, unsigned int events, int status);

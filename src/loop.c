@@ -103,6 +103,8 @@ void loop_deinit(struct loopctx *loop)
 int loop_run(struct loopctx *loop)
 {
     int i, nevent;
+    /* event polling and context switching is not the bottleneck,
+       batch polling risks event caching pitfalls, see 'man 7 epoll' */
     struct epoll_event ev[1];
 
     for (;;) {
