@@ -38,9 +38,8 @@ int skutils_connect(struct skinfo *info, const char *addr, uint16_t port,
    events of 'sfd' in 'loop' and update callback to 'epcb'
    return 0 if succeed, otherwise -errno
 */
-int skutils_evctl(struct skinfo *info, struct loopctx *loop, int sfd,
-                  unsigned int *events, struct epcb_ops *epcb,
-                  unsigned int mask, int enable);
+int skutils_evctl(struct loopctx *loop, int sfd, unsigned int *events,
+                  struct epcb_ops *epcb, unsigned int mask, int enable);
 
 /* send(2), with log prints
    return number of bytes sent, otherwise -errno on error */

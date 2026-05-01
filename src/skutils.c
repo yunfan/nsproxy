@@ -50,9 +50,8 @@ int skutils_connect(struct skinfo *info, const char *addr, uint16_t port,
     return sfd;
 }
 
-int skutils_evctl(struct skinfo *info, struct loopctx *loop, int sfd,
-                  unsigned int *events, struct epcb_ops *epcb,
-                  unsigned int mask, int enable)
+int skutils_evctl(struct loopctx *loop, int sfd, unsigned int *events,
+                  struct epcb_ops *epcb, unsigned int mask, int enable)
 {
     int err = 0;
     unsigned int old_events = *events;

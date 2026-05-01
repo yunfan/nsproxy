@@ -605,8 +605,8 @@ static int socks_evctl(struct proxy *proxy, unsigned int event, int enable)
     struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
     return self->phase != PHASE_FORWARDING
         ? -EAGAIN
-        : skutils_evctl(&self->info, self->loop, self->sfd, &self->events,
-                        &self->epcb, event, enable); 
+        : skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb,
+                        event, enable); 
 }
 
 /* impl for struct proxy :: send */
