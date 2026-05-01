@@ -381,7 +381,7 @@ static void socks_handshake_input(struct proxy_socks *self)
 
         /* no a correct protocol header */
         if (buff->data[0] != 5) {
-            loglv(0, "Proxy server retern a bad reply: VER field is 0x%02x, "
+            loglv(0, "Proxy server return a bad reply: VER field is 0x%02x, "
                      "expected 0x05", (unsigned char)buff->data[0]);
             self->userev(self->userp, 0, -1);
             return;
@@ -518,7 +518,7 @@ static void socks_handshake_input(struct proxy_socks *self)
         }
 
         if (hdr.ver != 5) {
-            loglv(0, "Proxy server retern a bad reply: VER field is 0x%02x, "
+            loglv(0, "Proxy server return a bad reply: VER field is 0x%02x, "
                      "expected 0x05", hdr.ver);
             self->userev(self->userp, 0, -1);
             return;
@@ -737,7 +737,7 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
     uint16_t proxy_port;
     int socktype = (type == UDP_FORWARD) ? SOCK_DGRAM : SOCK_STREAM;
 
-    loglv(3, "socks_create_impl: creating a new struct conn_socks for %s:%u/%s",
+    loglv(3, "socks_create_impl: creating new struct proxy_socks for %s:%u/%s",
              addr, (unsigned)port, (type == UDP_FORWARD) ? "udp" : "tcp");
 
     if (strlen(addr) > SERVNAME_MAXLEN)

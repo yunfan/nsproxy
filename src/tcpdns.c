@@ -56,7 +56,7 @@ struct tcpdns_worker {
     uint8_t done;
 };
 
-/* destory, and remove from workers list */
+/* destroy, and remove from workers list */
 static void tcpdns_worker_destroy(struct tcpdns_worker *worker)
 {
     struct proxy_tcpdns *master = worker->master;
@@ -114,7 +114,7 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event,
             if (worker->nbuffer < rsz + 2)
                 return; /* not finish */
 
-            /* query succeed, destory worker connection */
+            /* query succeed, destroy worker connection */
             proxy_put(worker->proxy);
             worker->proxy = NULL;
 
@@ -303,7 +303,7 @@ struct proxy *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
 {
     struct proxy_tcpdns *master;
 
-    loglv(3, "tcpdns_create: creating a new struct conn_tcpdns");
+    loglv(3, "tcpdns_create: creating new struct proxy_tcpdns");
 
     if ((master = calloc(1, sizeof(struct proxy_tcpdns))) == NULL)
         oom();

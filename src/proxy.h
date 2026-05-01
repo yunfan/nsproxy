@@ -29,7 +29,7 @@ static inline int proxy_shutdown(struct proxy *proxy, int how, int rst)
     return proxy->ops->shutdown(proxy, how, rst);
 }
 
-/* event control funcion
+/* event control function
    'events' is same as epoll_ctl(2)
    'enable' indicate bits contain in event should be set or unset
    return 0 if no error, or -errno if error
@@ -40,7 +40,7 @@ static inline int proxy_evctl(struct proxy *proxy, unsigned int events,
     return proxy->ops->evctl(proxy, events, enable);
 }
 
-/* send funcion
+/* send function
    return number of bytes sent, or -errno on error
 */
 static inline ssize_t proxy_send(struct proxy *proxy, const char *data,
@@ -49,7 +49,7 @@ static inline ssize_t proxy_send(struct proxy *proxy, const char *data,
     return proxy->ops->send(proxy, data, len);
 }
 
-/* send funcion
+/* send function
    return number of bytes read, or -errno on error
 */
 static inline ssize_t proxy_recv(struct proxy *proxy, char *data, size_t len)
@@ -57,7 +57,7 @@ static inline ssize_t proxy_recv(struct proxy *proxy, char *data, size_t len)
     return proxy->ops->recv(proxy, data, len);
 }
 
-/* get funcion
+/* get function
    increase reference count of this connection
  */
 static inline void proxy_get(struct proxy *proxy)
@@ -65,7 +65,7 @@ static inline void proxy_get(struct proxy *proxy)
     proxy->ops->get(proxy);
 }
 
-/* put funcion
+/* put function
    decrease reference count of this connection
  */
 static inline void proxy_put(struct proxy *proxy)

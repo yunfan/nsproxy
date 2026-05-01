@@ -92,7 +92,7 @@ static void tun_input(struct netif *tunif)
         abort();
     }
 
-    /* shirk, set p->tot_len = nread */
+    /* shrink, set p->tot_len = nread */
     pbuf_realloc(p, nread);
 
     loglv(3, "tun_input: read %zd bytes from TUN", nread);
@@ -204,7 +204,7 @@ static void tcp_forward_destroy(struct tcp_forward *fwd, int force)
         tcp_err(fwd->pcb, NULL);
         if (force)
             tcp_abort(fwd->pcb);
-        else        
+        else
             tcp_close(fwd->pcb);
     }
 
@@ -361,7 +361,7 @@ static err_t udp_proxy_output(struct udp_forward *fwd)
 /* try to recv data from proxy server and send to application
    may called from lwip context if
    - data are ack'ed by lwip
-   may called from epoll contest if
+   may called from epoll context if
    - data are received from proxy server, in socket buffer
    - EOF is received from proxy server
 */
@@ -397,7 +397,7 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
             fwd->proxyeof = 1;
             pbuf_free(p);
         } else {
-            /* set acture length for pbuf */
+            /* set actual length for pbuf */
             pbuf_realloc(p, nread);
 
             /* send to application and enqueue to fwd->sndq */
@@ -436,7 +436,7 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
    called from lwip context if
    - data are received from lwip, in fwd->rcvq
    - EOF is reveived from lwip
-   called from epoll contest if:
+   called from epoll context if:
    - there is some free space available in socket buffer
 */
 static err_t tcp_proxy_output(struct tcp_forward *fwd)
@@ -483,7 +483,7 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
 }
 
 /* called by lwip when data has received from application,
-   this funcion push the received data to receive queue
+   this function push the received data to receive queue
 */
 static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                               const ip_addr_t *addr, u16_t port)
@@ -513,7 +513,7 @@ static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 }
 
 /* called by lwip when application acked data,
-   this funcion free sending queue, and ask more data from proxy server
+   this function free sending queue, and ask more data from proxy server
 */
 static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
@@ -531,7 +531,7 @@ static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
 }
 
 /* called by lwip when data has received from application,
-   this funcion push the these data to receive queue
+   this function push the these data to receive queue
 */
 static err_t tcp_lwip_received(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
                                err_t err)
@@ -566,7 +566,7 @@ static void tcp_lwip_err(void *arg, err_t err)
     struct tcp_forward *fwd = arg;
     if (fwd) {
         loglv(3, "tcp_lwip_err: lwip error, force destroy fwd");
-        fwd->pcb= NULL;
+        fwd->pcb = NULL;
         tcp_forward_destroy(fwd, 1);
     }
 }

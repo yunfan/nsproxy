@@ -119,7 +119,7 @@ static void http_handshake_input(struct proxy_http *self)
 
     /* Use MSG_PEEK here, if some application layer data has been returned,
        we can carefuly not to touch them
-       Treat buff->data as string, nerver forget set a '\0' after recv()
+       Treat buff->data as string, never forget set a '\0' after recv()
     */
     nread = recv(self->sfd, buff->data + buff->size,
                  buff->capacity - buff->size - 1, MSG_PEEK);
@@ -351,7 +351,7 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
     struct proxy_http *self;
     struct nspconf *conf = current_nspconf();
 
-    loglv(3, "http_tcp_create: creating a new struct conn_http for %s:%u/tcp",
+    loglv(3, "http_tcp_create: creating new struct proxy_http for %s:%u/tcp",
              addr, (unsigned)port);
 
     if (strlen(addr) > SERVNAME_MAXLEN)

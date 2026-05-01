@@ -108,7 +108,7 @@ direct_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
 {
     struct proxy_direct *self;
 
-    loglv(3, "direct_create_impl: creating new struct conn_direct for %s:%u/%s",
+    loglv(3, "direct_create_impl: creating new struct proxy_direct for %s:%u/%s",
              addr, (unsigned)port, (type == SOCK_DGRAM) ? "udp" : "tcp");
 
     if (strlen(addr) > SERVNAME_MAXLEN)
