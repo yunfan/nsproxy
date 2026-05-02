@@ -384,6 +384,7 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
 {
     struct tcp_pcb *pcb = fwd->pcb;
     struct proxy *proxy = fwd->proxy;
+    struct pbuf *p;
 
     /* reset gc ttl */
     fwd->gc = NSPROXY_TCP_IDLE_TIMEOUT;
@@ -391,7 +392,6 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
     while (!fwd->proxyeof && tcp_sndbuf(pcb) > tcp_mss(pcb)
            && tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN / 2) {
         ssize_t nread;
-        struct pbuf *p;
 
         if ((p = pbuf_alloc(PBUF_RAW, tcp_mss(pcb), PBUF_RAM)) == NULL)
             oom();
@@ -404,13 +404,12 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
         } else if (nread < 0) {
             loglv(3, "tcp_proxy_input: proxy error, force destroy fwd "
                      "reason: %s", strerror(-nread));
-            tcp_forward_destroy(fwd, 1);
-            pbuf_free(p);
-            return ERR_ABRT;
+            goto err_free_pbuf;
         } else if (nread == 0) {
             loglv(3, "tcp_proxy_input: received EOF from proxy");
             fwd->proxyeof = 1;
             pbuf_free(p);
+            break;
         } else {
             /* set actual length for pbuf */
             pbuf_realloc(p, nread);
@@ -418,7 +417,7 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
             /* send to application and enqueue to fwd->sndq */
             if (tcp_write(pcb, p->payload, nread, 0) != ERR_OK) {
                 loglv(3, "tcp_proxy_input: tcp_write() failed");
-                abort();
+                goto err_free_pbuf;
             }
             /* p is moved into fwd->sndq, don't free */
             if (fwd->sndq == NULL)
@@ -426,7 +425,10 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
             else
                 pbuf_cat(fwd->sndq, p);
 
-            tcp_output(pcb); /* don't delay */
+            if (tcp_output(pcb) != ERR_OK) { /* don't delay */
+                loglv(3, "tcp_proxy_input: tcp_output() failed");
+                goto err_abort;
+            };
         } 
     }
 
@@ -445,6 +447,12 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
     }
 
     return ERR_OK;
+
+err_free_pbuf:
+    pbuf_free(p);
+err_abort:
+    tcp_forward_destroy(fwd, 1);
+    return ERR_ABRT;
 }
 
 /* try to send data to proxy server
