@@ -317,18 +317,12 @@ static void socks_handshake_output(struct proxy_socks *self)
 
             ret = socks5_hdr_put(buff->data + buff->size,
                                  buff->capacity - buff->size, &hdr);
-            if (ret == -1) {
-                fprintf(stderr, "an invariant violation has been detected.\n");
-                abort();
-            }
+            assert(ret > 0);
             buff->size += ret;
 
             ret = socks5_addr_put(buff->data + buff->size,
                                   buff->capacity - buff->size, &ad);
-            if (ret == -1) {
-                fprintf(stderr, "an invariant violation has been detected.\n");
-                abort();
-            }
+            assert(ret > 0);
             buff->size += ret;
         }
     }
