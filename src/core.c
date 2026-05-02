@@ -88,8 +88,9 @@ static void tun_input(struct netif *tunif)
         oom();
 
     if ((nread = read(core->tunfd, p->payload, p->len)) == -1) {
-        perror("read()");
-        abort();
+        loglv(3, "tun_input: read tunfd failed: %s", strerror(errno));
+        pbuf_free(p);
+        return;
     }
 
     /* shrink, set p->tot_len = nread */
@@ -127,8 +128,8 @@ static err_t tun_output(struct netif *tunif, struct pbuf *p)
             p = p->next;
     }
     if ((nwrite = writev(core->tunfd, iov, n)) == -1) {
-        perror("write()");
-        abort();
+        loglv(3, "tun_input: writev tunfd failed: %s", strerror(errno));
+        return ERR_IF;
     }
     if (nwrite != orig->tot_len) {
         LWIP_DEBUGF(NETIF_DEBUG, ("tun_output: partial write\n"));
@@ -821,8 +822,9 @@ static void core_timerfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
     uint64_t expired;
 
     if (read(core->timerfd, &expired, sizeof(expired)) == -1) {
-        perror("read()");
-        abort();
+        loglv(3, "core_timerfd_epcb_events: read timerfd failed: %s",
+                 strerror(-errno));
+        return;
     }
     while (expired--) {
         if (core->timerepoch % 4 == 0) {
