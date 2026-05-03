@@ -705,7 +705,7 @@ err_t core_udp_new(struct udp_pcb *pcb)
         else
             fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
                                            conf->dnssrv, conf->dnsport);
-        return ERR_OK;
+        goto end;
     }
 
     /* forward gateway to host namespace  */
@@ -713,27 +713,31 @@ err_t core_udp_new(struct udp_pcb *pcb)
         const char *localhost = IP_IS_V4(&pcb->local_ip) ? "127.0.0.1" : "::1";
         fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
                                        localhost, pcb->local_port);
-        return ERR_OK;
+        goto end;
     }
 
     ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
     if (conf->proxytype == PROXY_SOCKS5) {
         fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd,
                                       ip, pcb->local_port, core->udpassoc);
-    } else if (conf->proxytype == PROXY_HTTP) {
-        udp_forward_destroy(fwd);
-        return ERR_ABRT;
-    } else {
+    } else if (conf->proxytype == PROXY_DIRECT) {
         fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
                                        ip, pcb->local_port);
     }
-    return ERR_OK;
+
+end:
+    if (fwd->proxy == NULL) {
+        udp_forward_destroy(fwd);
+        return ERR_ABRT;
+    } else {
+        return ERR_OK;
+    }
 }
 
 /* called by lwip when a tcp connection is create
    this function create a connection to proxy server and set lwip tcp_*() up
 */
-void core_tcp_new(struct tcp_pcb *pcb)
+err_t core_tcp_new(struct tcp_pcb *pcb)
 {
     struct corectx *core = ip_current_netif()->state;
     struct nspconf *conf = current_nspconf();
@@ -754,7 +758,7 @@ void core_tcp_new(struct tcp_pcb *pcb)
         const char *localhost = IP_IS_V4(&pcb->local_ip) ? "127.0.0.1" : "::1";
         fwd->proxy = direct_tcp_create(core->loop, &tcp_proxy_io_event, fwd,
                                        localhost, pcb->local_port);
-        return;
+        goto end;
     }
 
     ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
@@ -767,6 +771,14 @@ void core_tcp_new(struct tcp_pcb *pcb)
     } else {
         fwd->proxy = direct_tcp_create(core->loop, &tcp_proxy_io_event, fwd,
                                        ip, pcb->local_port);
+    }
+
+end:
+    if (fwd->proxy == NULL) {
+        tcp_forward_destroy(fwd, 1);
+        return ERR_ABRT;
+    } else {
+        return ERR_OK;
     }
 }
 

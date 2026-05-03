@@ -755,7 +755,10 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
 
 #if NSPROXY_MODIFIED
     /* try to create a connection to proxy server when first SYN is recived */
-    core_tcp_new(npcb);
+    if (core_tcp_new(npcb) != ERR_OK) {
+      /* pcb is free'ed, no need to do anything */
+      return;
+    }
 #endif
   }
   return;
