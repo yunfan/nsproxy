@@ -90,7 +90,7 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event,
     struct tcpdns_worker *worker = userp;
     ssize_t nread, nsent;
 
-    if (event & EPOLLERR) {
+    if ((event & EPOLLERR) || status < 0) {
         tcpdns_worker_destroy(worker);
         return;
     }
