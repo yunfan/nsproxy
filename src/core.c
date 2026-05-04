@@ -331,6 +331,7 @@ static err_t udp_proxy_output(struct udp_forward *fwd)
     struct proxy *proxy = fwd->proxy;
     ssize_t i, nsent;
     struct pbuf *p;
+    char *heapbuff = NULL;
 
     /* reset gc ttl */
     fwd->gc = fwd->pcb->local_port == 53
@@ -341,19 +342,29 @@ static err_t udp_proxy_output(struct udp_forward *fwd)
     for (i = 0; i < fwd->nrcvq; i++) {
         p = fwd->rcvq[i];
         if (p->len == p->tot_len) {
+            /* only single pbuf in chain */
             nsent = proxy_send(proxy, p->payload, p->tot_len);
         } else {
-            char buffer[65536];
-            pbuf_copy_partial(p, buffer, p->tot_len, 0);
-            nsent = proxy_send(proxy, buffer, p->tot_len);
+            char stkbuff[2048];
+            if (p->tot_len <= sizeof(stkbuff)) {
+                /* prefer use stack buffer */
+                pbuf_copy_partial(p, stkbuff, p->tot_len, 0);
+                nsent = proxy_send(proxy, stkbuff, p->tot_len);
+            } else {
+                if (heapbuff == NULL) {
+                    if ((heapbuff = malloc(UDP_PACKET_MAXLEN)) == NULL)
+                        oom();
+                }
+                pbuf_copy_partial(p, heapbuff, p->tot_len, 0);
+                nsent = proxy_send(proxy, heapbuff, p->tot_len);
+            }
         }
         if (nsent == -EAGAIN) {
             break;
         } else if (nsent < 0) {
             logwarn("udp_proxy_output: proxy error, force destroy fwd, "
                     "reason: %s", strerror(-nsent));
-            udp_forward_destroy(fwd);
-            return ERR_ABRT;
+            goto err;
         } else {
             /* succeed */
             pbuf_free(p);
@@ -370,7 +381,13 @@ static err_t udp_proxy_output(struct udp_forward *fwd)
         proxy_evctl(proxy, EPOLLOUT, 0);
     }
 
+    free(heapbuff);
     return ERR_OK;
+
+err:
+    udp_forward_destroy(fwd);
+    free(heapbuff);
+    return ERR_ABRT;
 }
 
 /* try to recv data from proxy server and send to application
