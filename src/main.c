@@ -757,11 +757,6 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    if (strlen(conf.dnssrv) == sizeof(conf.dnssrv) - 1) {
-        fprintf(stderr, "nsproxy: dns server address too long.\n");
-        exit(EXIT_FAILURE);
-    }
-
     current_nspconf() = &conf;
 
     /* command line config initialized, print it */
