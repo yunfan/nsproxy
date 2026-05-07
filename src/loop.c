@@ -10,52 +10,49 @@ struct loopctx {
     int epfd;
 };
 
-/* handle SIGCHLD, nsproxy exits after all child processes exit */
+/* handle SIGCHLD, nsproxy exits after all child processes exit
+   returns:
+   - -EAGAIN: child still alive
+   - >= 0: exit status of last child
+   - < 0: error
+*/
 static int sigfd_handler(struct loopctx *loop)
 {
     struct signalfd_siginfo sig;
     pid_t pid;
-    int status;
-    int exitcode = 0;
+    int stat, exited, exitcode = 0;
 
-    if (read(loop->sigfd, &sig, sizeof(sig)) == -1) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return -1;
-        }
-        perror("read()");
-        abort();
-    }
+    if (read(loop->sigfd, &sig, sizeof(sig)) == -1)
+        return -errno;
 
     /* we never add signals other than SIGCHLD to the sigmask,
        this should not happen */
     if (sig.ssi_signo != SIGCHLD)
-        return -1;
+        return -EINVAL;
 
     /* reap all exited children */
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-        if (WIFEXITED(status)) {
-            exitcode = WEXITSTATUS(status);
-            loglv(1, "Child process %d exited with status %d",
-                     pid, exitcode);
-        } else if (WIFSIGNALED(status)) {
-            exitcode = 128 + WTERMSIG(status);
-            loglv(1, "Child process %d killed by signal %d",
-                     pid, WTERMSIG(status));
-        }
+    while ((pid = waitpid(-1, &stat, WNOHANG)) > 0) {
+        if (!WIFEXITED(stat) && !WIFSIGNALED(stat))
+            continue; /* child not dead */
+        exited = WIFEXITED(stat);
+        exitcode = exited ? WEXITSTATUS(stat) : (128 + WTERMSIG(stat));
+        loglv(1, "Child process %d %s %d", pid,
+                 exited ? "exited with status" : "killed by signal",
+                 exited ? WEXITSTATUS(stat) : WTERMSIG(stat));
     }
 
     /* no child could be reaped, may some still running, or all exited */
 
-    if (pid == 0) {
-        /* still running, continue event loop */
-        return -1;
-    } else if (errno == ECHILD) {
-        /* all exited, exit nsproxy */
+    if (pid == -1 && errno == ECHILD) {
         loglv(1, "All child exited, cleaning ...");
         return exitcode;
+    } else if (pid == -1) {
+        int ret = -errno;
+        logwarn("sigfd_handler: waitpid() failed: %s", strerror(errno));
+        return ret;
     } else {
-        logwarn("waitpid() failed: %s", strerror(errno));
-        return -1;
+        assert(pid == 0);
+        return -EAGAIN;
     }
 }
 
@@ -100,24 +97,21 @@ void loop_deinit(struct loopctx *loop)
 
 int loop_run(struct loopctx *loop)
 {
-    int i, nevent;
+    int i, nevent, ret;
     /* event polling and context switching is not the bottleneck,
        batch polling risks event caching pitfalls, see 'man 7 epoll' */
     struct epoll_event ev[1];
 
     for (;;) {
         if ((nevent = epoll_wait(loop->epfd, ev, arraysizeof(ev), -1)) == -1) {
-            if (errno != EINTR) {
-                perror("epoll_wait()");
-                abort();
-            }
+            if (errno == EINTR)
+                continue;
+            return -errno;
         }
         for (i = 0; i < nevent; i++) {
             if (ev[i].data.ptr == &loop->sigfd) {
-                int rc;
-                if ((rc = sigfd_handler(loop)) != -1) {
-                    return rc;
-                }
+                if ((ret = sigfd_handler(loop)) != -EAGAIN)
+                    return ret;
             } else {
                 struct epcb_ops *epcb = ev[i].data.ptr;
                 epcb->on_epoll_events(epcb, ev[i].events);

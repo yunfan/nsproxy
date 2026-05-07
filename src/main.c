@@ -479,7 +479,10 @@ static int parent(int sk)
     }
 
     loginfo("parent: starting event loop");
-    rc = loop_run(loop);
+    if ((rc = loop_run(loop)) < 0) {
+        fprintf(stderr, "Error: loop_run(): %s\n", strerror(-rc));
+        exit(EXIT_FAILURE);
+    }
 
     core_deinit(core);
     loop_deinit(loop);
