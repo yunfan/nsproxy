@@ -21,6 +21,8 @@
 
 #define arraysizeof(array) (sizeof(array) / sizeof(*(array)))
 
+#define membersizeof(type, member) (sizeof(((type *)0)->member))
+
 #define loglv(lv, str, ...)                                        \
     do {                                                           \
         if (nsproxy_verbose_level__ >= lv)                         \

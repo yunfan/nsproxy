@@ -176,7 +176,7 @@ static ssize_t tcpdns_send(struct proxy *proxy, const char *data, size_t size)
 
     loglv(2, "--- tcpdns %zd bytes query", size);
 
-    if (size + 2 > sizeof(worker->buffer))
+    if (size + 2 > membersizeof(struct tcpdns_worker, buffer))
         return -E2BIG; /* query too large */
 
     /* init worker */
