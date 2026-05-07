@@ -792,7 +792,7 @@ int main(int argc, char *argv[])
     }
 
     /* main */
-    if (socketpair(AF_UNIX, SOCK_STREAM | SFD_CLOEXEC, 0, skpair) == -1) {
+    if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, skpair) == -1) {
         perror("socketpair()");
         exit(EXIT_FAILURE);
     }
