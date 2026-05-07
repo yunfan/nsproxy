@@ -66,7 +66,7 @@ int loop_init(struct loopctx **loop, int sigfd)
 
     if ((p->epfd = epoll_create1(EPOLL_CLOEXEC)) == -1) {
         loglv(0, "loop_init: epoll_create1() failed: %s", strerror(errno));
-        goto err_free_p;
+        goto failed_after_malloc;
     }
 
     p->sigfd = sigfd;
@@ -74,7 +74,7 @@ int loop_init(struct loopctx **loop, int sigfd)
     ev.data.ptr = &p->sigfd;
     if (epoll_ctl(p->epfd, EPOLL_CTL_ADD, sigfd, &ev) == -1) {
         loglv(0, "loop_init: epoll_ctl(sigfd) failed: %s", strerror(errno));
-        goto err_close_epfd;
+        goto failed_after_epoll_create;
     }
 
     loginfo("loop_init: initialized event loop (loopctx)");
@@ -82,9 +82,9 @@ int loop_init(struct loopctx **loop, int sigfd)
     *loop = p;
     return 0;
 
-err_close_epfd:
+failed_after_epoll_create:
     close(p->epfd);
-err_free_p:
+failed_after_malloc:
     free(p);
     return -1;
 }

@@ -362,7 +362,7 @@ static void socks_handshake_input(struct proxy_socks *self)
             return;
         } else if (nread <= 0) {
             socks_handshake_perror(self, nread == -1 ? errno : 0);
-            goto err_handshake_failed;
+            goto failed_handshake;
         }
         buff->size += nread;
 
@@ -374,20 +374,20 @@ static void socks_handshake_input(struct proxy_socks *self)
         if (buff->data[0] != 5) {
             loglv(0, "Proxy server return a bad reply: VER field is 0x%02x, "
                      "expected 0x05", (unsigned char)buff->data[0]);
-            goto err_handshake_failed;
+            goto failed_handshake;
         }
 
         /* server reject our all method */
         if ((unsigned char)buff->data[1] == 0xFF) {
             loglv(0, "Proxy server requires authentication. "
                      "Please check your username and password.");
-            goto err_handshake_failed;
+            goto failed_handshake;
         } /* - else: server selected a method */
 
         /* should be only one method */
         if (buff->size != 2) {
             loglv(0, "Proxy server returned invalid method response");
-            goto err_handshake_failed;
+            goto failed_handshake;
         }
 
         /* see what method server selected */
@@ -401,7 +401,7 @@ static void socks_handshake_input(struct proxy_socks *self)
             /* other */
             loglv(0, "Proxy server returned unsupported authentication "
                      "method: 0x%02x", (unsigned char)buff->data[1]);
-            goto err_handshake_failed;
+            goto failed_handshake;
         }
     }
 
@@ -412,14 +412,14 @@ static void socks_handshake_input(struct proxy_socks *self)
             return;
         } else if (nread <= 0) {
             socks_handshake_perror(self, nread == -1 ? errno : 0);
-            goto err_handshake_failed;
+            goto failed_handshake;
         }
         buff->size += nread;
 
         /* hanshake failed because server didn't follow RFC1929 */
         if (buff->size > 2) {
             loglv(0, "Proxy server returned invalid auth response");
-            goto err_handshake_failed;
+            goto failed_handshake;
         }
 
         /* wait more data */
@@ -429,7 +429,7 @@ static void socks_handshake_input(struct proxy_socks *self)
         if (buff->data[0] != 1 || buff->data[1] != 0) {
             loglv(0, "SOCKS5 authentication failed. "
                      "Please check your username and password.");
-            goto err_handshake_failed;
+            goto failed_handshake;
         }
 
         /* good, server replied correctly */
@@ -451,7 +451,7 @@ static void socks_handshake_input(struct proxy_socks *self)
             return;
         } else if (nread <= 0) {
             socks_handshake_perror(self, nread == -1 ? errno : 0);
-            goto err_handshake_failed;
+            goto failed_handshake;
         }
 
         /* determine whether handshake finished, and boundary of handshake
@@ -483,7 +483,7 @@ static void socks_handshake_input(struct proxy_socks *self)
         if (nread != s) {
             loglv(0, "Handshake failed, recv() returned %zd, expected %zd",
                      nread, s);
-            goto err_handshake_failed;
+            goto failed_handshake;
         }
         buff->size += nread;
 
@@ -494,7 +494,7 @@ static void socks_handshake_input(struct proxy_socks *self)
             if (buff->size == buff->capacity) {
                 loglv(0, "Proxy server returned a header that is too large "
                          "during the handshake.");
-                goto err_handshake_failed;
+                goto failed_handshake;
             }
 
             /* if not failed, wait for rest handshake message */
@@ -504,7 +504,7 @@ static void socks_handshake_input(struct proxy_socks *self)
         if (hdr.ver != 5) {
             loglv(0, "Proxy server return a bad reply: VER field is 0x%02x, "
                      "expected 0x05", hdr.ver);
-            goto err_handshake_failed;
+            goto failed_handshake;
         }
 
         if (hdr.rsp != 0) {
@@ -516,7 +516,7 @@ static void socks_handshake_input(struct proxy_socks *self)
                 loglv(0, "Proxy server rejected our request: %s",
                          hdr.rsp > 9 ? rspstr[9] : rspstr[hdr.rsp]);
             }
-            goto err_handshake_failed;
+            goto failed_handshake;
         }
 
         if (self->type == UDP_ASSOCIATE) {
@@ -551,7 +551,7 @@ static void socks_handshake_input(struct proxy_socks *self)
 
     return;
 
-err_handshake_failed:
+failed_handshake:
     self->userev(self->userp, 0, PROXY_ABORT);
 }
 

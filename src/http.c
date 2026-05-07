@@ -125,7 +125,7 @@ static void http_handshake_input(struct proxy_http *self)
         return;
     } else if (nread <= 0) {
         http_handshake_perror(self, nread == -1 ? errno : 0);
-        goto err_handshake_failed;
+        goto failed_handshake;
     }
 
     (buff->data + buff->size)[nread] = '\0';
@@ -143,7 +143,7 @@ static void http_handshake_input(struct proxy_http *self)
     if (nread != ndiscard) {
         loglv(0, "Handshake failed, recv() returned %zd, expected %zd", nread,
                  ndiscard);
-        goto err_handshake_failed;
+        goto failed_handshake;
     }
     buff->size += ndiscard;
 
@@ -153,7 +153,7 @@ static void http_handshake_input(struct proxy_http *self)
         if (buff->size == buff->capacity - 1) {
             loglv(0, "Proxy server returned a header that is too large "
                      "during the handshake.");
-            goto err_handshake_failed;
+            goto failed_handshake;
         }
         /* if not failed, wait for rest handshake message */
         return;
@@ -163,7 +163,7 @@ static void http_handshake_input(struct proxy_http *self)
     if (sscanf(buff->data, "HTTP/1.%c %d", &vermin, &code) != 2) {
         loglv(0, "Proxy server returned invalid HTTP response header during "
                  "handshake");
-        goto err_handshake_failed;
+        goto failed_handshake;
     }
     if (code != 200) {
         if (code == 407 || code == 401) {
@@ -172,7 +172,7 @@ static void http_handshake_input(struct proxy_http *self)
         } else {
             loglv(0, "Proxy server returned HTTP error %d", code);
         }
-        goto err_handshake_failed;
+        goto failed_handshake;
     }
 
     self->phase = PHASE_FORWARDING;
@@ -186,7 +186,7 @@ static void http_handshake_input(struct proxy_http *self)
     self->hsbuff = NULL;
     return;
 
-err_handshake_failed:
+failed_handshake:
     self->userev(self->userp, 0, PROXY_ABORT);
 }
 

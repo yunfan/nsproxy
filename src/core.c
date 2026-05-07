@@ -280,7 +280,7 @@ static err_t udp_proxy_input(struct udp_forward *fwd)
     struct udp_pcb *pcb = fwd->pcb;
     char *buffer;
     struct pbuf *p;
-    err_t ret = ERR_OK;
+    err_t ret;
 
     /* reset gc ttl */
     fwd->gc = fwd->pcb->local_port == 53
@@ -296,26 +296,26 @@ static err_t udp_proxy_input(struct udp_forward *fwd)
         ssize_t nread = proxy_recv(proxy, buffer, UDP_PACKET_MAXLEN);
         if (nread == -EAGAIN) {
             proxy_evctl(proxy, EPOLLIN, 1);
-            goto end;
+            ret = ERR_OK;
+            break;
         } else if (nread < 0) {
             logwarn("udp_proxy_input: proxy error, destroy fwd, reason: %s",
                     strerror(-nread));
             udp_forward_destroy(fwd);
             ret = ERR_ABRT;
-            goto end;
+            break;
         } else {
             pbuf_realloc(p, nread); /* set p->tot_len = nread */
             if (udp_send(pcb, p) != ERR_OK) {
                 logwarn("udp_proxy_input: udp_send() failed, destroy fwd");
                 udp_forward_destroy(fwd);
                 ret = ERR_ABRT;
-                goto end;
+                break;
             }
             /* continue */
         }
     }
 
-end:
     pbuf_free(p);
     free(buffer);
     return ret;
@@ -361,7 +361,7 @@ static err_t udp_proxy_output(struct udp_forward *fwd)
         } else if (nsent < 0) {
             logwarn("udp_proxy_output: proxy error, force destroy fwd, "
                     "reason: %s", strerror(-nsent));
-            goto err;
+            goto failed_abort;
         } else {
             /* succeed */
             pbuf_free(p);
@@ -381,7 +381,7 @@ static err_t udp_proxy_output(struct udp_forward *fwd)
     free(heapbuff);
     return ERR_OK;
 
-err:
+failed_abort:
     udp_forward_destroy(fwd);
     free(heapbuff);
     return ERR_ABRT;
@@ -419,7 +419,7 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
         } else if (nread < 0) {
             logwarn("tcp_proxy_input: proxy error, force destroy fwd "
                     "reason: %s", strerror(-nread));
-            goto err_free_pbuf;
+            goto failed_after_pbuf_alloc;
         } else if (nread == 0) {
             loginfo("tcp_proxy_input: received EOF from proxy");
             fwd->proxyeof = 1;
@@ -432,7 +432,7 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
             /* send to application and enqueue to fwd->sndq */
             if (tcp_write(pcb, p->payload, nread, 0) != ERR_OK) {
                 logwarn("tcp_proxy_input: tcp_write() failed");
-                goto err_free_pbuf;
+                goto failed_after_pbuf_alloc;
             }
             /* p is moved into fwd->sndq, don't free */
             if (fwd->sndq == NULL)
@@ -442,7 +442,7 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
 
             if (tcp_output(pcb) != ERR_OK) { /* don't delay */
                 logwarn("tcp_proxy_input: tcp_output() failed");
-                goto err_abort;
+                goto failed_abort;
             };
         } 
     }
@@ -463,9 +463,9 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
 
     return ERR_OK;
 
-err_free_pbuf:
+failed_after_pbuf_alloc:
     pbuf_free(p);
-err_abort:
+failed_abort:
     tcp_forward_destroy(fwd, 1);
     return ERR_ABRT;
 }
@@ -886,11 +886,11 @@ int core_init(struct corectx **core, struct loopctx *loop, int tunfd)
     if ((p->timerfd = timerfd_create(CLOCK_MONOTONIC,
                                      TFD_NONBLOCK | TFD_CLOEXEC)) == -1) {
         loglv(0, "core_init: timerfd_create() failed: %s", strerror(errno));
-        goto err_free_p;
+        goto failed_after_malloc;
     }
     if ((timerfd_settime(p->timerfd, 0, &its, NULL)) == -1) {
         loglv(0, "core_init: timerfd_settime() failed: %s", strerror(errno));
-        goto err_close_timerfd;
+        goto failed_after_timerfd_create;
     }
 
     /* register tunfd and timerfd to epoll */
@@ -934,9 +934,9 @@ int core_init(struct corectx **core, struct loopctx *loop, int tunfd)
     *core = p;
     return 0;
 
-err_close_timerfd:
+failed_after_timerfd_create:
     close(p->timerfd);
-err_free_p:
+failed_after_malloc:
     free(p);
     return -1;
 }
