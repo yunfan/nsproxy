@@ -509,7 +509,7 @@ static int child(int sk, char *cmd[])
             exit(EXIT_FAILURE);
         }
 
-        /* Failed, of cause. Unprivileged users can't create net_namespace.
+        /* Failed, of course. Unprivileged users can't create net_namespace.
            Try again with user_namespace */
         uid = getuid();
         gid = getgid();

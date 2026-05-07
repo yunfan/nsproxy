@@ -19,7 +19,7 @@ int skutils_connect(struct skinfo *info, const char *addr, uint16_t port,
 
     snprintf(portstr, sizeof(portstr), "%u", (unsigned int)port);
 
-    /* reslove string addr to sockaddr, works well with both IPv4 / IPv6 */
+    /* resolve string addr to sockaddr, works well with both IPv4 / IPv6 */
     if (getaddrinfo(addr, portstr, &hints, &ai) != 0)
         return -EADDRNOTAVAIL;
 

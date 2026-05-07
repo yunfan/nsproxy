@@ -77,7 +77,7 @@ int loop_init(struct loopctx **loop, int sigfd)
         goto err_close_epfd;
     }
 
-    loginfo("loop_init: lwIP and event loop initialized");
+    loginfo("loop_init: initialized event loop (loopctx)");
 
     *loop = p;
     return 0;

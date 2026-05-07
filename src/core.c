@@ -118,14 +118,14 @@ static err_t tun_output(struct netif *tunif, struct pbuf *p)
         iov[n].iov_base = p->payload;
         iov[n].iov_len = p->len;
         n++;
-        /* lwip used below as loop end condiction, not p->next == NULL */
+        /* lwip used below as loop end condition, not p->next == NULL */
         if (p->len == p->tot_len)
             break;
         else
             p = p->next;
     }
     if ((nwrite = writev(core->tunfd, iov, n)) == -1) {
-        logwarn("tun_input: writev tunfd failed: %s", strerror(errno));
+        logwarn("tun_output: writev tunfd failed: %s", strerror(errno));
         return ERR_IF;
     }
     if (nwrite != orig->tot_len) {
@@ -453,10 +453,10 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
     /* received EOF from proxy, and all datas has been sent to lwip,
        forward this EOF to lwip now */
     if (fwd->proxyeof && !fwd->sndq) {
-        loginfo("tcp_lwip_sent: sndq drained, half-closing lwip");
+        loginfo("tcp_proxy_input: sndq drained, half-closing lwip");
         tcp_shutdown(pcb, 0, 1);
         if (fwd->lwipeof && !fwd->rcvq) {
-            loginfo("tcp_lwip_sent: full-closing");
+            loginfo("tcp_proxy_input: full-closing");
             tcp_forward_destroy(fwd, 0);
         }
     }
@@ -473,7 +473,7 @@ err_abort:
 /* try to send data to proxy server
    called from lwip context if
    - data are received from lwip, in fwd->rcvq
-   - EOF is reveived from lwip
+   - EOF is received from lwip
    called from epoll context if:
    - there is some free space available in socket buffer
    if ERR_ABRT is returned, fwd was free'ed, caller should not continue
@@ -558,7 +558,7 @@ static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
     struct tcp_forward *fwd = arg;
 
-    /* remove ackeded data from send queue */
+    /* remove ack'ed data from send queue */
     fwd->sndq = pbuf_free_header(fwd->sndq, len);
 
     /* ask proxy server for more data, if we have space in queue */
@@ -598,7 +598,7 @@ static err_t tcp_lwip_received(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
 }
 
 /* called by lwip when TCP connection has been destroyed,
-   just destroy tcp_forward but rememeber that PCB has been gone
+   just destroy tcp_forward but remember that PCB has been gone
 */
 static void tcp_lwip_err(void *arg, err_t err)
 {
@@ -629,7 +629,7 @@ static void udp_assoc_io_event(void *userp, unsigned int events, int status)
 
         /* set countdown, timer will re-associate after it expires */
         cdexp = core->assocretries <= 5 ? core->assocretries : 5;
-        core->assoccd = 1 << cdexp; /* exponet backoff */
+        core->assoccd = 1 << cdexp; /* exponent backoff */
     } else {
         /* UDP_ASSOCIATE succeed */
         proxy_evctl(core->udpassoc, EPOLLOUT, 0);
@@ -916,7 +916,7 @@ int core_init(struct corectx **core, struct loopctx *loop, int tunfd)
         netif_ip6_addr_set_state(&p->tunif, 0, IP6_ADDR_PREFERRED);
     }
 
-    loginfo("core_init: corectx and lwip initialized");
+    loginfo("core_init: initialized lwIP core forwarding module (corectx)");
 
     if (current_nspconf()->proxytype == PROXY_SOCKS5) {
         p->udpassoc = socks_assoc_create(loop, &udp_assoc_io_event, p);
