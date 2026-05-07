@@ -59,9 +59,6 @@ static void tcpdns_worker_destroy(struct tcpdns_worker *worker)
 {
     struct proxy_tcpdns *master = worker->master;
 
-    if (!worker)
-        return;
-
     /* close connection (if present) */
     if (worker->proxy) {
         proxy_put(worker->proxy);
