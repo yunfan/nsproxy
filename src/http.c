@@ -33,8 +33,8 @@ static const char base64_chars[] =
 /* Base64 encode function
    Returns the number of bytes written to output (include NUL terminate)
 */
-static size_t base64_encode(char *output, size_t outlen,
-                            const void *binary, size_t inlen)
+static size_t base64_encode(char *output, size_t outlen, const void *binary,
+                            size_t inlen)
 {
     size_t i, j;
 
@@ -134,9 +134,8 @@ static void http_handshake_input(struct proxy_http *self)
     crlf2 = strstr(buff->data, "\r\n\r\n");
 
     /* number of bytes need to discard after recv(..., MSG_PEEK) */
-    ndiscard = crlf2
-        ? (crlf2 + strlen("\r\n\r\n") - (buff->data + buff->size))
-        : nread;
+    ndiscard = crlf2 ? (crlf2 + strlen("\r\n\r\n") - (buff->data + buff->size))
+                     : nread;
 
     /* discard http response part in socket buffer */
     nread = recv(self->sfd, buff->data + buff->size, ndiscard, 0);
@@ -236,7 +235,7 @@ static void http_handshake_output(struct proxy_http *self)
         }
     }
 
-    nsent = send(self->sfd, buff->data,buff->size, MSG_NOSIGNAL);
+    nsent = send(self->sfd, buff->data, buff->size, MSG_NOSIGNAL);
     if (nsent == -1) {
         if (errno != EAGAIN) {
             http_handshake_perror(self, errno);
@@ -254,8 +253,7 @@ static void http_handshake_output(struct proxy_http *self)
 
     /* good, http request has been send */
     self->phase = PHASE_RECV_REPLY;
-    loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, EPOLLIN,
-                   &self->epcb);
+    loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, EPOLLIN, &self->epcb);
 }
 
 static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
@@ -268,8 +266,8 @@ static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
         return;
     }
 
-    loginfo("http_epcb_events: handshaking with %s:%u/tcp [%s]",
-            self->addr, (unsigned)self->port, phasestr[self->phase]);
+    loginfo("http_epcb_events: handshaking with %s:%u/tcp [%s]", self->addr,
+            (unsigned)self->port, phasestr[self->phase]);
 
     if (self->phase == PHASE_SEND_REQUEST) {
         http_handshake_output(self);
@@ -283,8 +281,9 @@ static int http_shutdown(struct proxy *proxy, int how, int rst)
 {
     struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
     return self->phase != PHASE_FORWARDING
-        ? -EAGAIN
-        : skutils_shutdown(&self->info, self->loop, &self->sfd, how, rst);
+               ? -EAGAIN
+               : skutils_shutdown(&self->info, self->loop, &self->sfd, how,
+                                  rst);
 }
 
 /* impl for struct proxy :: evctl */
@@ -292,9 +291,9 @@ static int http_evctl(struct proxy *proxy, unsigned int event, int enable)
 {
     struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
     return self->phase != PHASE_FORWARDING
-        ? -EAGAIN
-        : skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb,
-                        event, enable); 
+               ? -EAGAIN
+               : skutils_evctl(self->loop, self->sfd, &self->events,
+                               &self->epcb, event, enable);
 }
 
 /* impl for struct proxy :: send */
@@ -302,8 +301,8 @@ static ssize_t http_send(struct proxy *proxy, const char *data, size_t size)
 {
     struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
     return self->phase != PHASE_FORWARDING
-        ? -EAGAIN
-        : skutils_send(&self->info, self->sfd, data, size);
+               ? -EAGAIN
+               : skutils_send(&self->info, self->sfd, data, size);
 }
 
 /* impl for struct proxy :: recv */
@@ -311,8 +310,8 @@ static ssize_t http_recv(struct proxy *proxy, char *data, size_t size)
 {
     struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
     return self->phase != PHASE_FORWARDING
-        ? -EAGAIN
-        : skutils_recv(&self->info, self->sfd, data, size);
+               ? -EAGAIN
+               : skutils_recv(&self->info, self->sfd, data, size);
 }
 
 /* impl for struct proxy :: get */
@@ -347,7 +346,7 @@ static const struct proxy_ops http_ops = {
 /* create a tcp connection
    this connection is proxied via http proxy server */
 struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
-                               void *userp, const char *addr, uint16_t port)
+                              void *userp, const char *addr, uint16_t port)
 {
     struct proxy_http *self;
     struct nspconf *conf = current_nspconf();

@@ -151,9 +151,8 @@ direct_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
 
 /* public function,
    create a tcp connection that will connect directly via local network */
-struct proxy *
-direct_tcp_create(struct loopctx *loop, userev_fn_t *userev, void *userp,
-                  const char *addr, uint16_t port)
+struct proxy *direct_tcp_create(struct loopctx *loop, userev_fn_t *userev,
+                                void *userp, const char *addr, uint16_t port)
 {
     struct proxy_direct *self =
         direct_create_impl(loop, userev, userp, SOCK_STREAM, addr, port);
@@ -162,9 +161,8 @@ direct_tcp_create(struct loopctx *loop, userev_fn_t *userev, void *userp,
 
 /* public function,
    create a udp connection that will connect directly via local network */
-struct proxy *
-direct_udp_create(struct loopctx *loop, userev_fn_t *userev, void *userp,
-                  const char *addr, uint16_t port)
+struct proxy *direct_udp_create(struct loopctx *loop, userev_fn_t *userev,
+                                void *userp, const char *addr, uint16_t port)
 {
     struct proxy_direct *self =
         direct_create_impl(loop, userev, userp, SOCK_DGRAM, addr, port);

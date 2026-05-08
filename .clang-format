@@ -5,6 +5,7 @@ AlignOperands: true
 AlignTrailingComments: true
 AllowShortIfStatementsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: false
+BreakBeforeBinaryOperators: NonAssignment
 BreakBeforeBraces: Linux
 ColumnLimit: 80
 Cpp11BracedListStyle: false

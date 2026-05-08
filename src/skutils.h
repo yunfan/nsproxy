@@ -9,12 +9,14 @@ struct buff {
     char data[];
 };
 
-#define buff_calloc(n) __extension__ ({                         \
-    size_t n__ = (n);                                           \
-    struct buff *buff__ = calloc(1, sizeof(struct buff) + n__); \
-    if (buff__ != NULL) buff__->capacity = n__;                 \
-    buff__;                                                     \
-})
+#define buff_calloc(n)                                              \
+    __extension__({                                                 \
+        size_t n__ = (n);                                           \
+        struct buff *buff__ = calloc(1, sizeof(struct buff) + n__); \
+        if (buff__ != NULL)                                         \
+            buff__->capacity = n__;                                 \
+        buff__;                                                     \
+    })
 
 struct skinfo {
     /* for stat */

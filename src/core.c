@@ -10,13 +10,13 @@
 #include "lwip/init.h"
 #include "lwip/ip.h"
 #include "lwip/ip4_frag.h"
+#include "lwip/ip6_addr.h"
 #include "lwip/ip6_frag.h"
 #include "lwip/nd6.h"
 #include "lwip/netif.h"
 #include "lwip/priv/tcp_priv.h"
 #include "lwip/tcp.h"
 #include "lwip/udp.h"
-#include "lwip/ip6_addr.h"
 
 #include "direct.h"
 #include "http.h"
@@ -283,9 +283,8 @@ static err_t udp_proxy_input(struct udp_forward *fwd)
     err_t ret;
 
     /* reset gc ttl */
-    fwd->gc = fwd->pcb->local_port == 53
-        ? NSPROXY_DNS_IDLE_TIMEOUT
-        : NSPROXY_UDP_IDLE_TIMEOUT;
+    fwd->gc = fwd->pcb->local_port == 53 ? NSPROXY_DNS_IDLE_TIMEOUT
+                                         : NSPROXY_UDP_IDLE_TIMEOUT;
 
     if ((buffer = malloc(UDP_PACKET_MAXLEN)) == NULL)
         oom();
@@ -331,9 +330,8 @@ static err_t udp_proxy_output(struct udp_forward *fwd)
     char *heapbuff = NULL;
 
     /* reset gc ttl */
-    fwd->gc = fwd->pcb->local_port == 53
-        ? NSPROXY_DNS_IDLE_TIMEOUT
-        : NSPROXY_UDP_IDLE_TIMEOUT;
+    fwd->gc = fwd->pcb->local_port == 53 ? NSPROXY_DNS_IDLE_TIMEOUT
+                                         : NSPROXY_UDP_IDLE_TIMEOUT;
 
     /* send all */
     for (i = 0; i < fwd->nrcvq; i++) {
@@ -444,7 +442,7 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
                 logwarn("tcp_proxy_input: tcp_output() failed");
                 goto failed_abort;
             };
-        } 
+        }
     }
 
     /* no space in sndq available or proxy EOF, stop polling EPOLLIN */
@@ -513,7 +511,7 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
         proxy_shutdown(proxy, SHUT_WR, 0);
         /* full close */
         if (fwd->proxyeof && !fwd->sndq) {
-            loginfo("tcp_proxy_output: full-closing"); 
+            loginfo("tcp_proxy_output: full-closing");
             tcp_forward_destroy(fwd, 0);
         }
     }
@@ -564,7 +562,7 @@ static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
     /* ask proxy server for more data, if we have space in queue */
     if (tcp_sndbuf(pcb) >= TCPWND16(TCP_SND_BUF / 2))
         if (tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN / 2)
-                return tcp_proxy_input(fwd);
+            return tcp_proxy_input(fwd);
 
     return ERR_OK;
 }
@@ -615,7 +613,7 @@ static void udp_assoc_io_event(void *userp, unsigned int events, int status)
 {
     struct corectx *core = userp;
     struct udp_forward *fwd;
-    int cdexp; 
+    int cdexp;
 
     if (events != EPOLLOUT || status < 0) {
         /* UDP_ASSOCIATE failed, remove this connection */
@@ -635,7 +633,7 @@ static void udp_assoc_io_event(void *userp, unsigned int events, int status)
         proxy_evctl(core->udpassoc, EPOLLOUT, 0);
         core->assocready = 1;
         core->assocretries = 0;
-        for (fwd = core->udplst; fwd; ) {
+        for (fwd = core->udplst; fwd;) {
             /* fwd may be free'ed in udp_proxy_output, save next first */
             struct udp_forward *next = fwd->next;
             udp_proxy_output(fwd);
@@ -705,12 +703,11 @@ err_t core_udp_new(struct udp_pcb *pcb)
 
     fwd = udp_forward_create(core);
     fwd->pcb = pcb;
-    fwd->gc = pcb->local_port == 53
-        ? NSPROXY_DNS_IDLE_TIMEOUT
-        : NSPROXY_UDP_IDLE_TIMEOUT;
+    fwd->gc = pcb->local_port == 53 ? NSPROXY_DNS_IDLE_TIMEOUT
+                                    : NSPROXY_UDP_IDLE_TIMEOUT;
 
     udp_recv(pcb, udp_lwip_received, fwd);
-    
+
     /* DNS redirection */
     if (is_gateway(&core->tunif, &pcb->local_ip) && pcb->local_port == 53
         && conf->dnstype != DNS_REDIR_OFF) {
@@ -732,11 +729,11 @@ err_t core_udp_new(struct udp_pcb *pcb)
 
     ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
     if (conf->proxytype == PROXY_SOCKS5 && core->assocready) {
-        fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd,
-                                      ip, pcb->local_port, core->udpassoc);
+        fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd, ip,
+                                      pcb->local_port, core->udpassoc);
     } else if (conf->proxytype == PROXY_DIRECT) {
-        fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
-                                       ip, pcb->local_port);
+        fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd, ip,
+                                       pcb->local_port);
     }
 
 end:
@@ -777,14 +774,14 @@ err_t core_tcp_new(struct tcp_pcb *pcb)
 
     ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
     if (conf->proxytype == PROXY_SOCKS5) {
-        fwd->proxy = socks_tcp_create(core->loop, &tcp_proxy_io_event, fwd,
-                                      ip, pcb->local_port);
+        fwd->proxy = socks_tcp_create(core->loop, &tcp_proxy_io_event, fwd, ip,
+                                      pcb->local_port);
     } else if (conf->proxytype == PROXY_HTTP) {
-        fwd->proxy = http_tcp_create(core->loop, &tcp_proxy_io_event, fwd,
-                                     ip, pcb->local_port);
+        fwd->proxy = http_tcp_create(core->loop, &tcp_proxy_io_event, fwd, ip,
+                                     pcb->local_port);
     } else {
-        fwd->proxy = direct_tcp_create(core->loop, &tcp_proxy_io_event, fwd,
-                                       ip, pcb->local_port);
+        fwd->proxy = direct_tcp_create(core->loop, &tcp_proxy_io_event, fwd, ip,
+                                       pcb->local_port);
     }
 
 end:

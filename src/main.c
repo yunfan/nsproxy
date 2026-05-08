@@ -17,8 +17,8 @@
 #include <sys/wait.h>
 
 #include "common.h"
-#include "loop.h"
 #include "core.h"
+#include "loop.h"
 #include "lwipopts.h"
 
 int nsproxy_verbose_level__ = 0;
@@ -245,8 +245,8 @@ static void setup_ipv6(void)
 {
     int sk;
     struct ifreq ifr = { .ifr_name = "tun0" };
-    struct in6_ifreq ifr6 = {0};
-    struct in6_rtmsg rtmsg6 = {0};
+    struct in6_ifreq ifr6 = { 0 };
+    struct in6_rtmsg rtmsg6 = { 0 };
 
     if ((sk = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0)) == -1) {
         perror("socket()");
@@ -270,7 +270,7 @@ static void setup_ipv6(void)
 
     /* add ipv6 default gateway */
     inet_pton(AF_INET6, NSPROXY_GATEWAY_IPV6, &rtmsg6.rtmsg_gateway);
-    rtmsg6.rtmsg_dst_len = 0;  /* ::/0 */
+    rtmsg6.rtmsg_dst_len = 0; /* ::/0 */
     rtmsg6.rtmsg_src_len = 0;
     rtmsg6.rtmsg_metric = 1;
     rtmsg6.rtmsg_flags = RTF_UP | RTF_GATEWAY;

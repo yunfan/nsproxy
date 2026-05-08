@@ -118,7 +118,6 @@ struct socks5addr {
 #define SOCKS5_CMD_CONNECT  1
 #define SOCKS5_CMD_UDPASSOC 3
 
-
 /* put socks5 header to buffer,
    return the number of bytes written , or -1 if failed */
 static ssize_t socks5_hdr_put(char *buffer, size_t size,
@@ -435,7 +434,6 @@ static void socks_handshake_input(struct proxy_socks *self)
         self->phase = PHASE_SEND_REQUEST;
     }
 
-
     if (self->phase == PHASE_RECV_REPLY) {
         struct socks5hdr hdr = { 0 };
         struct socks5addr ad;
@@ -462,13 +460,13 @@ static void socks_handshake_input(struct proxy_socks *self)
             pass = 0;
 
             ret = socks5_hdr_get(&hdr, buff->data + offset,
-                                buff->size + nread - offset);
+                                 buff->size + nread - offset);
             if (ret == -1)
                 break;
             offset += ret;
 
             ret = socks5_addr_get(&ad, buff->data + offset,
-                                buff->size + nread - offset);
+                                  buff->size + nread - offset);
             if (ret == -1)
                 break;
             offset += ret;
@@ -522,8 +520,7 @@ static void socks_handshake_input(struct proxy_socks *self)
             loglv(1, "UDP relay address: %s:%u", ad.addr, (unsigned)ad.port);
             if ((self->relay = calloc(1, sizeof(struct reladdr))) == NULL)
                 oom();
-            static_assert(sizeof(self->relay->addr) >= sizeof(ad.addr),
-                          "???");
+            static_assert(sizeof(self->relay->addr) >= sizeof(ad.addr), "???");
             strcpy(self->relay->addr, ad.addr);
             self->relay->port = ad.port;
         }
@@ -568,8 +565,8 @@ static void socks_epcb_events(struct epcb_ops *epcb, unsigned int events)
             self->addr, (unsigned)self->port,
             self->type == TCP_FORWARD ? "tcp" : "udp", phasestr[self->phase]);
 
-    if (self->phase == PHASE_SEND_METHOD || self->phase == PHASE_SEND_AUTH ||
-        self->phase == PHASE_SEND_REQUEST) {
+    if (self->phase == PHASE_SEND_METHOD || self->phase == PHASE_SEND_AUTH
+        || self->phase == PHASE_SEND_REQUEST) {
         socks_handshake_output(self);
     } else {
         socks_handshake_input(self);
@@ -581,8 +578,8 @@ static int socks_shutdown(struct proxy *proxy, int how, int rst)
 {
     struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
     return self->phase != PHASE_FORWARDING
-        ? -EAGAIN
-        : skutils_shutdown(&self->info, self->loop, &self->sfd, how, rst);
+               ? -EAGAIN
+               : skutils_shutdown(&self->info, self->loop, &self->sfd, how, rst);
 }
 
 /* impl for struct proxy :: evctl */
@@ -590,9 +587,9 @@ static int socks_evctl(struct proxy *proxy, unsigned int event, int enable)
 {
     struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
     return self->phase != PHASE_FORWARDING
-        ? -EAGAIN
-        : skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb,
-                        event, enable); 
+               ? -EAGAIN
+               : skutils_evctl(self->loop, self->sfd, &self->events,
+                               &self->epcb, event, enable);
 }
 
 /* impl for struct proxy :: send */

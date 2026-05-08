@@ -319,14 +319,14 @@ struct proxy *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
     master->ops.ops = &dns_ops;
     master->loop = loop;
     master->evfdepcb.on_epoll_events = &tcpdns_master_epcb_events;
-    master->evfd  = -1;
+    master->evfd = -1;
     master->events = 0;
     master->refcnt = 1;
     master->userev = userev;
     master->userp = userp;
 
     master->evfd = eventfd(0, EFD_SEMAPHORE | EFD_NONBLOCK | EFD_CLOEXEC);
-    if (master->evfd  == -1) {
+    if (master->evfd == -1) {
         free(master);
         return NULL;
     }
