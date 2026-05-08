@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <linux/if_tun.h>
@@ -86,6 +87,27 @@ static ssize_t write_string(const char *fname, const char *str)
 
     close(fd);
     return w;
+}
+
+/* path is an accessible directory containing at least one non-dot-entry */
+static int has_nondotentry(const char *path)
+{
+    DIR *dir;
+    struct dirent *ent;
+    int found = 0;
+
+    if ((dir = opendir(path)) == NULL)
+        return 0; /* failed, path may not accessible, or isn't a directory */
+
+    while ((ent = readdir(dir)) != NULL) {
+        if (ent->d_name[0] != '.') {
+            found = 1; /* found a non-dot-entry */
+            break;
+        }
+    }
+
+    closedir(dir);
+    return found;
 }
 
 static void map_ids(uid_t uid, uid_t gid)
@@ -527,8 +549,18 @@ static int child(int sk, char *cmd[])
     if (unshare_mount() == 0) {
         loginfo("child: created mount namespace");
 
-        /* WORKAROUND: Bad owner or permissions on /etc/ssh/ssh_config.d */
-        mount("tmpfs", "/etc/ssh/ssh_config.d", "tmpfs", 0, NULL);
+        /* OpenSSH client (ssh) exited with following message:
+           > 'Bad owner or permissions on /etc/ssh/ssh_config.d/foobar.conf'
+           That's caused by user_namespace mapped uid 0 to overflow uid, ssh
+           misunderstood as owner of the config file is bad.
+           XXX: mount a tmpfs and leave ssh_config.d empty to make ssh happy. */
+        if (has_nondotentry("/etc/ssh/ssh_config.d")) {
+            if (mount("tmpfs", "/etc/ssh/ssh_config.d", "tmpfs", 0, NULL) == -1)
+                loglv0("Warning: re-mounted /etc/ssh/ssh_config.d failed. "
+                       "OpenSSH client (ssh) may not work.");
+            else
+                loginfo("child: mounted /etc/ssh/ssh_config.d");
+        }
 
         /* ensure DNS redirection work */
         if (conf->dnstype != DNS_REDIR_OFF) {
