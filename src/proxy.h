@@ -76,10 +76,11 @@ static inline void proxy_put(struct proxy *proxy)
 /* events callback function
    called when events occurs on this connection
    'events' is same as epoll_wait(2)
-   'status' indicate errors in handshake, which is 0 if no error, or negative
-   number if error
+   'status' is PROXY_ABORT or PROXY_CONT
  */
 typedef void (userev_fn_t)(void *userp, unsigned int events, int status);
 
+/* struct proxy is aborted, stop now */
 #define PROXY_ABORT -1
+/* continue handle 'events' as epoll() semantic */
 #define PROXY_CONT   0

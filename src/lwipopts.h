@@ -1,10 +1,12 @@
 #pragma once
 
+/* Use lwIP low-level raw API only
+   nsproxy hacked into lwIP internal, raw API is more predictable */
 #define NO_SYS       1
 #define LWIP_SOCKET  0
 #define LWIP_NETCONN 0
 
-/* Enable modules */
+/* Enable modules: IPv4 / IPv6 / ICMP / UDP / TCP */
 #define LWIP_ARP      0
 #define LWIP_ETHERNET 0
 #define LWIP_IPV4     1
@@ -20,7 +22,10 @@
 #define LWIP_STATS    0
 #define LWIP_TIMERS   0
 
-/* Use Glibc malloc()/free() */
+/* Use glibc malloc() / free()
+   lwIP memory pool has been trimmed for simplicity. Performance profiler shows
+   it's not a bottleneck, and barely visible on the flame graph.
+*/
 #define MEM_LIBC_MALLOC 1
 #define MEMP_MEM_MALLOC 1
 

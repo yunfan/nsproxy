@@ -22,21 +22,44 @@ suite consists of three core components:
 REQUIREMENTS
 ----------
 
- - v2ray OR sing-box OR shadowsocks-rust (installed and in PATH)
- - Python 3 with pytest
+ - v2ray
+ - sing-box
+ - shadowsocks-rust
+ - iperf3
+ - CoreDNS
+ - Python3 with pytest
+
+Dependencies should installed in $PATH
 
 
 USAGE
 ----------
 
-Run following commands in the project root directory, not in tests/
-
 To run all tests:
 
    pytest -v tests/
 
+Run the command above in the project root directory, not in 'tests/'
+
 Note: nsproxy runs in verbose mode (`-vvv`) only when pytest is run with
 verbose mode (`-v`).
+
+
+ASAN AND UBSAN TESTING
+----------------------
+
+To compile with Address Sanitizer (ASan) and Undefined Behavior Sanitizer
+(UBSan):
+
+    cmake -S . -B build \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+        -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+    cmake --build build
+
+Then run the tests as usual:
+
+   pytest -v tests/
 
 
 VALGRIND TESTING
@@ -46,8 +69,10 @@ To run tests with Valgrind memory checker, use the `--valgrind` option:
 
    pytest -v tests/ --valgrind
 
-The project should be compiled without Address Sanitizer (ASan). Use the
-following build command:
+ASan is incompatible with Valgrind, don't use together. Here is the recommended
+compile commands for Valgrind testing:
 
-   cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_FLAGS="-fno-omit-frame-pointer"
-   cmake --build build
+    cmake -S . -B build \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_C_FLAGS="-fno-omit-frame-pointer"
+    cmake --build build
