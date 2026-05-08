@@ -556,11 +556,10 @@ static int child(int sk, char *cmd[])
 
     /* wait for parent process to ready, avoid potential race conditions,
        prevent child process being terminated before sigprocmask is set */
-    if (read(sk, &(char){ 0 }, sizeof(char)) == -1) {
-        perror("read()");
+    if (read(sk, &(char){ 0 }, sizeof(char)) <= 0) {
+        fprintf(stderr, "Error: parent close socketpair unexpectedly\n");
         exit(EXIT_FAILURE);
     }
-
     close(sk);
 
     loginfo("child: execvp(\"%s\", ...)", cmd[0]);
