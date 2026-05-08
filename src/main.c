@@ -309,69 +309,42 @@ failed:
     return -1;
 }
 
-static void configure_resolv_conf(void)
+static int overwrite_conf(const char *target, const char *content, uint8_t ro)
 {
     int fd;
-    char path[] = "/tmp/nsproxy-resolv-conf-XXXXXX";
-    const char *content = "nameserver " NSPROXY_GATEWAY_IP "\n";
+    char tmpname[] = "/tmp/nsproxy-overwrite-XXXXXX";
 
-    if ((fd = mkstemp(path)) == -1)
+    if ((fd = mkstemp(tmpname)) == -1)
         goto failed_on_create;
 
-    if (chmod(path, 0644) == -1)
+    if (chmod(tmpname, 0644) == -1)
         goto failed_after_create;
 
     if (write_all(fd, content, strlen(content)) < 0)
         goto failed_after_create;
 
-    if (mount(path, "/etc/resolv.conf", NULL, MS_BIND | MS_RDONLY, NULL) == -1)
+    if (mount(tmpname, target, NULL, MS_BIND, NULL) == -1)
         goto failed_after_create;
 
-    loginfo("child: re-bound /etc/resolv.conf");
+    if (ro) {
+        if (mount(tmpname, target, NULL,
+                  MS_BIND | MS_REMOUNT | MS_RDONLY, NULL) == -1)
+            goto failed_after_mount;
+    }
+
+    loginfo("child: re-bound %s", target);
 
     close(fd);
-    unlink(path);
-    return;
+    unlink(tmpname);
+    return 0;
 
+failed_after_mount:
+    umount(target);
 failed_after_create:
     close(fd);
-    unlink(path);
+    unlink(tmpname);
 failed_on_create:
-    loglv(0, "Warning: re-bind /etc/resolv.conf failed. "
-             "DNS redirect may not work.");
-}
-
-static void configure_nsswitch_conf(void)
-{
-    int fd;
-    char path[] = "/tmp/nsproxy-nsswitch-conf-XXXXXX";
-    const char *content = "hosts: files dns\n";
-
-    if ((fd = mkstemp(path)) == -1)
-        goto failed_on_create;
-
-    if (chmod(path, 0644) == -1)
-        goto failed_after_create;
-
-    if (write_all(fd, content, strlen(content)) < 0)
-        goto failed_after_create;
-
-    if (mount(path, "/etc/nsswitch.conf", NULL, MS_BIND | MS_RDONLY, NULL) ==
-        -1)
-        goto failed_after_create;
-
-    loginfo("child: re-bound /etc/nsswitch.conf");
-
-    close(fd);
-    unlink(path);
-    return;
-
-failed_after_create:
-    close(fd);
-    unlink(path);
-failed_on_create:
-    loglv(0, "Warning: re-bind /etc/nsswitch.conf failed. "
-             "DNS redirect may not work.");
+    return -1;
 }
 
 /* send a file descriptor to sock
@@ -561,8 +534,14 @@ static int child(int sk, char *cmd[])
 
         /* ensure DNS redirection work */
         if (conf->dnstype != DNS_REDIR_OFF) {
-            configure_resolv_conf();
-            configure_nsswitch_conf();
+            if (overwrite_conf("/etc/resolv.conf",
+                               "nameserver " NSPROXY_GATEWAY_IP "\n", 1) < 0)
+                loglv(0, "Warning: re-bind /etc/resolv.conf failed. "
+                         "DNS redirect may not work.");
+            if (overwrite_conf("/etc/nsswitch.conf",
+                               "hosts: files dns\n", 1) < 0)
+                loglv(0, "Warning: re-bind /etc/nsswitch.conf failed. "
+                         "DNS redirect may not work.");
         }
     }
 
