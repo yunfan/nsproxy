@@ -395,6 +395,36 @@ static int recv_fd(int sock)
     return ret;
 }
 
+/* use signalfd to receive SIGCHLD, setup sigprocmask and return a signalfd
+   must succeed, otherwise terminate this process */
+int setup_signalfd(void)
+{
+    int sigfd;
+    sigset_t mask;
+
+    /* mask = SIGCHLD */
+    if (sigemptyset(&mask) == -1) {
+        perror("sigemptyset()");
+        exit(EXIT_FAILURE);
+    }
+    if (sigaddset(&mask, SIGCHLD) == -1) {
+        perror("sigaddset()");
+        exit(EXIT_FAILURE);
+    }
+
+    if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
+        perror("sigprocmask()");
+        exit(EXIT_FAILURE);
+    }
+
+    if ((sigfd = signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK)) == -1) {
+        perror("signalfd()");
+        exit(EXIT_FAILURE);
+    }
+
+    return sigfd;
+}
+
 /* tasks in parent process are:
    1. Receive TUN file descriptor from child process.
    2. Initialize lwIP / epoll / sigprocmask.
@@ -404,8 +434,7 @@ static int recv_fd(int sock)
 */
 static int parent(int sk)
 {
-    int rc, tunfd, chdsigfd;
-    sigset_t mask;
+    int rc, tunfd, sigfd;
     struct loopctx *loop;
     struct corectx *core;
 
@@ -417,25 +446,9 @@ static int parent(int sk)
 
     tunfd = recv_fd(sk);
 
-    if (sigemptyset(&mask) == -1) {
-        perror("sigemptyset()");
-        exit(EXIT_FAILURE);
-    }
-    if (sigaddset(&mask, SIGCHLD) == -1) {
-        perror("sigaddset()");
-        exit(EXIT_FAILURE);
-    }
-    if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
-        perror("sigprocmask()");
-        exit(EXIT_FAILURE);
-    }
+    sigfd = setup_signalfd();
 
-    if ((chdsigfd = signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK)) == -1) {
-        perror("signalfd()");
-        exit(EXIT_FAILURE);
-    }
-
-    if (loop_init(&loop, chdsigfd) == -1) {
+    if (loop_init(&loop, sigfd) == -1) {
         fprintf(stderr, "Error: init event loop module failed\n");
         exit(EXIT_FAILURE);
     }
@@ -459,7 +472,7 @@ static int parent(int sk)
 
     core_deinit(core);
     loop_deinit(loop);
-    close(chdsigfd);
+    close(sigfd);
     close(tunfd);
 
     return rc;
