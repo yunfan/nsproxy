@@ -54,26 +54,43 @@ static void print_help(void)
            "    Print this help message and exit.\n");
 }
 
-static int write_string(const char *fname, const char *str)
+static ssize_t write_all(int fd, const void *data, size_t size)
+{
+    const char *p = data;
+    ssize_t w, written = 0;
+
+    if (size > SSIZE_MAX)
+        return -EINVAL;
+
+    do { /* use do-while to ensure that write() is called at least once */
+        if ((w = write(fd, p + written, (ssize_t)size - written)) == -1)
+            return -errno;
+        if (w == 0)
+            return (size > 0) ? -EIO : 0;
+        written += w;
+    } while (written < (ssize_t)size);
+
+    return written;
+}
+
+static ssize_t write_string(const char *fname, const char *str)
 {
     int fd;
+    ssize_t w;
 
     if ((fd = open(fname, O_WRONLY | O_APPEND | O_CLOEXEC)) == -1) {
         return -errno;
     }
 
-    if (write(fd, str, strlen(str)) == -1) {
-        close(fd);
-        return -errno;
-    }
+    w = write_all(fd, str, strlen(str));
 
     close(fd);
-    return 0;
+    return w;
 }
 
 static void map_uid(unsigned int from, unsigned int to)
 {
-    int ret;
+    ssize_t ret;
     char str[32];
 
     snprintf(str, sizeof(str), "%u %u 1\n", from, to);
@@ -87,7 +104,7 @@ static void map_uid(unsigned int from, unsigned int to)
 
 static void map_gid(unsigned int from, unsigned int to)
 {
-    int ret;
+    ssize_t ret;
     char str[32];
 
     snprintf(str, sizeof(str), "%u %u 1\n", from, to);
@@ -101,7 +118,7 @@ static void map_gid(unsigned int from, unsigned int to)
 
 static void set_setgroups(const char *action)
 {
-    int ret = write_string("/proc/self/setgroups", action);
+    ssize_t ret = write_string("/proc/self/setgroups", action);
 
     if (ret < 0) {
         fprintf(stderr,
@@ -304,7 +321,7 @@ static void configure_resolv_conf(void)
     if (chmod(path, 0644) == -1)
         goto failed_after_create;
 
-    if (write(fd, content, strlen(content)) == -1)
+    if (write_all(fd, content, strlen(content)) < 0)
         goto failed_after_create;
 
     if (mount(path, "/etc/resolv.conf", NULL, MS_BIND | MS_RDONLY, NULL) == -1)
@@ -336,7 +353,7 @@ static void configure_nsswitch_conf(void)
     if (chmod(path, 0644) == -1)
         goto failed_after_create;
 
-    if (write(fd, content, strlen(content)) == -1)
+    if (write_all(fd, content, strlen(content)) < 0)
         goto failed_after_create;
 
     if (mount(path, "/etc/nsswitch.conf", NULL, MS_BIND | MS_RDONLY, NULL) ==
