@@ -1,7 +1,6 @@
 #include "socks.h"
 
 #include <arpa/inet.h>
-#include <endian.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
 #include <sys/epoll.h>
@@ -254,7 +253,7 @@ static ssize_t socks5_addr_get(struct socks5addr *addr, const char *buffer,
     memcpy(&portbe, cur, sizeof(portbe));
     cur += sizeof(portbe);
 
-    addr->port = be16toh(portbe);
+    addr->port = ntohs(portbe);
 
     return cur - buffer;
 }

@@ -1,7 +1,6 @@
 #include "tcpdns.h"
 
 #include <arpa/inet.h>
-#include <endian.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 
@@ -107,7 +106,7 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event,
             uint64_t sema = 1;
 
             memcpy(&rsz, worker->buffer, sizeof(rsz));
-            rsz = be16toh(rsz);
+            rsz = ntohs(rsz);
 
             if (worker->nbuffer < rsz + 2)
                 return; /* not finish */

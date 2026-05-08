@@ -693,12 +693,12 @@ int main(int argc, char *argv[])
             struct sockaddr_in *sa4 = (struct sockaddr_in *)result->ai_addr;
             inet_ntop(result->ai_family, &sa4->sin_addr, conf.proxysrv,
                       sizeof(conf.proxysrv));
-            conf.proxyport = be16toh(sa4->sin_port);
+            conf.proxyport = ntohs(sa4->sin_port);
         } else if (result->ai_family == AF_INET6) {
             struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)result->ai_addr;
             inet_ntop(result->ai_family, &sa6->sin6_addr, conf.proxysrv,
                       sizeof(conf.proxysrv));
-            conf.proxyport = be16toh(sa6->sin6_port);
+            conf.proxyport = ntohs(sa6->sin6_port);
         } else {
             fprintf(stderr, "nsproxy: unsupported proxy server address.\n");
             exit(EXIT_FAILURE);
