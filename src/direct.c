@@ -142,9 +142,8 @@ direct_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
     }
 
     /* waiting for connect completed */
-    self->events = EPOLLOUT | EPOLLIN;
-    loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, self->events,
-                   &self->epcb);
+    skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb,
+                  EPOLLOUT | EPOLLIN, EVUPD);
 
     return self;
 }

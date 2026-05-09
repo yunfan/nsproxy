@@ -178,9 +178,9 @@ static void http_handshake_input(struct proxy_http *self)
     loglv2("... handshaked %s:%u/tcp", self->addr, (unsigned)self->port);
 
     /* good, handshake finish, listen and forward epoll event for user */
-    self->events = EPOLLOUT | EPOLLIN;
-    loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, self->events,
-                   &self->epcb);
+    skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb,
+                  EPOLLOUT | EPOLLIN, EVUPD);
+
     free(self->hsbuff);
     self->hsbuff = NULL;
     return;
@@ -253,7 +253,8 @@ static void http_handshake_output(struct proxy_http *self)
 
     /* good, http request has been send */
     self->phase = PHASE_RECV_REPLY;
-    loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, EPOLLIN, &self->epcb);
+    skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb, EPOLLIN,
+                  EVUPD);
 }
 
 static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
@@ -390,7 +391,8 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
 
     /* good, start handshake */
     self->phase = PHASE_SEND_REQUEST;
-    loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, EPOLLOUT, &self->epcb);
+    skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb, EPOLLOUT,
+                  EVUPD);
 
     return &self->ops;
 }

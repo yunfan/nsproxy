@@ -345,7 +345,8 @@ static void socks_handshake_output(struct proxy_socks *self)
         case PHASE_SEND_REQUEST: self->phase = PHASE_RECV_REPLY;  break;
     }
 
-    loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, EPOLLIN, &self->epcb);
+    skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb, EPOLLIN,
+                  EVUPD);
 }
 
 static void socks_handshake_input(struct proxy_socks *self)
@@ -533,13 +534,12 @@ static void socks_handshake_input(struct proxy_socks *self)
 
     /* when control flow reach here, it should finish a step of input phase */
     if (self->phase == PHASE_SEND_REQUEST || self->phase == PHASE_SEND_AUTH) {
-        loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, EPOLLOUT,
-                       &self->epcb);
+        skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb,
+                      EPOLLOUT, EVUPD);
     } else {
         assert(self->phase == PHASE_FORWARDING);
-        self->events = EPOLLOUT | EPOLLIN;
-        loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, self->events,
-                       &self->epcb);
+        skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb,
+                      EPOLLOUT | EPOLLIN, EVUPD);
         free(self->hsbuff);
         self->hsbuff = NULL;
     }
@@ -758,9 +758,8 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
         }
         self->phase = PHASE_FORWARDING;
 
-        self->events = EPOLLOUT | EPOLLIN;
-        loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, self->events,
-                       &self->epcb);
+        skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb,
+                      EPOLLOUT | EPOLLIN, EVUPD);
     } else {
         if ((self->hsbuff = buff_calloc(SOCKS_HS_BUFF)) == NULL)
             oom();
@@ -777,8 +776,8 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
 
         /* wait to handshake */
         self->phase = PHASE_SEND_METHOD;
-        loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, EPOLLOUT,
-                       &self->epcb);
+        skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb,
+                      EPOLLOUT, EVUPD);
     }
 
     return self;

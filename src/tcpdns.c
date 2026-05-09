@@ -330,9 +330,8 @@ struct proxy *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
         return NULL;
     }
 
-    master->events = EPOLLOUT | EPOLLIN;
-    loop_epoll_ctl(master->loop, EPOLL_CTL_ADD, master->evfd, master->events,
-                   &master->evfdepcb);
+    skutils_evctl(master->loop, master->evfd, &master->events, &master->evfdepcb,
+                  EPOLLOUT | EPOLLIN, EVUPD);
 
     return &master->ops;
 }
