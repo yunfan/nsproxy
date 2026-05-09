@@ -86,7 +86,9 @@ static netif_addr_idx_t nd6_cached_destination_index;
 /* Multicast address holder. */
 static ip6_addr_t multicast_address;
 
+#if LWIP_IPV6_SEND_ROUTER_SOLICIT /* NSPROXY_MODIFIED */
 static u8_t nd6_tmr_rs_reduction;
+#endif /* NSPROXY_MODIFIED */
 
 /* Static buffer to parse RA packet options */
 union ra_options {

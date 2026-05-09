@@ -716,7 +716,6 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
 {
     struct proxy_socks *self;
     struct nspconf *conf = current_nspconf();
-    uint16_t proxy_port;
     int socktype = (type == UDP_FORWARD) ? SOCK_DGRAM : SOCK_STREAM;
 
     loginfo("socks_create_impl: creating new struct proxy_socks for %s:%u/%s",

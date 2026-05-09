@@ -527,7 +527,6 @@ static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 {
     struct udp_forward *fwd = arg;
     struct corectx *core = fwd->core;
-    struct proxy *proxy = fwd->proxy;
 
     if (!p) {
         /* should not happen */
@@ -865,7 +864,6 @@ static void core_timerfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
 int core_init(struct corectx **core, struct loopctx *loop, int tunfd)
 {
     struct corectx *p;
-    struct epoll_event ev;
     ip4_addr_t tunaddr;
     ip4_addr_t tunnetmask;
     ip4_addr_t tungateway;
