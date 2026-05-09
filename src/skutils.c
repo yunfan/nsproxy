@@ -5,6 +5,7 @@
 #include <netinet/tcp.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include "proxy.h"
 
 int skutils_connect(struct skinfo *info, const char *addr, uint16_t port,
                     int type)
@@ -50,19 +51,24 @@ int skutils_connect(struct skinfo *info, const char *addr, uint16_t port,
 }
 
 int skutils_evctl(struct loopctx *loop, int sfd, unsigned int *events,
-                  struct epcb_ops *epcb, unsigned int mask, int enable)
+                  struct epcb_ops *epcb, unsigned int mask, int mode)
 {
     int err = 0;
-    unsigned int old_events = *events;
-    unsigned int new_events = enable ? (old_events | mask)
-                                     : (old_events & ~mask);
+    unsigned int new_events, old_events = *events;
+
+    switch (mode) {
+        case EVCLR: new_events = old_events & ~mask; break;
+        case EVSET: new_events = old_events | mask;  break;
+        case EVUPD: new_events = mask;               break;
+        default: return -EINVAL;
+    }
 
     if (old_events != new_events) {
         int op = (old_events == 0) ? EPOLL_CTL_ADD :
                  (new_events == 0) ? EPOLL_CTL_DEL :
                                      EPOLL_CTL_MOD;
-        err = loop_epoll_ctl(loop, op, sfd, new_events, epcb);
-        *events = new_events;
+        if ((err = loop_epoll_ctl(loop, op, sfd, new_events, epcb)) == 0)
+            *events = new_events;
     }
 
     return err;

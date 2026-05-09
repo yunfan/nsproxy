@@ -582,13 +582,13 @@ static int socks_shutdown(struct proxy *proxy, int how, int rst)
 }
 
 /* impl for struct proxy :: evctl */
-static int socks_evctl(struct proxy *proxy, unsigned int event, int enable)
+static int socks_evctl(struct proxy *proxy, unsigned int event, int mode)
 {
     struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
     return self->phase != PHASE_FORWARDING
                ? -EAGAIN
                : skutils_evctl(self->loop, self->sfd, &self->events,
-                               &self->epcb, event, enable);
+                               &self->epcb, event, mode);
 }
 
 /* impl for struct proxy :: send */

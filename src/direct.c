@@ -51,11 +51,11 @@ static int direct_shutdown(struct proxy *proxy, int how, int rst)
 }
 
 /* impl for struct proxy :: evctl */
-static int direct_evctl(struct proxy *proxy, unsigned int event, int enable)
+static int direct_evctl(struct proxy *proxy, unsigned int event, int mode)
 {
     struct proxy_direct *self = container_of(proxy, struct proxy_direct, ops);
     return skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb,
-                         event, enable);
+                         event, mode);
 }
 
 /* impl for struct proxy :: send */

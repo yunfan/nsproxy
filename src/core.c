@@ -294,7 +294,7 @@ static err_t udp_proxy_input(struct udp_forward *fwd)
     for (;;) {
         ssize_t nread = proxy_recv(proxy, buffer, UDP_PACKET_MAXLEN);
         if (nread == -EAGAIN) {
-            proxy_evctl(proxy, EPOLLIN, 1);
+            proxy_evctl(proxy, EPOLLIN, EVSET);
             ret = ERR_OK;
             break;
         } else if (nread < 0) {
@@ -371,9 +371,9 @@ static err_t udp_proxy_output(struct udp_forward *fwd)
     if (fwd->nrcvq > 0) {
         /* EAGAIN happened at i packet*/
         memmove(fwd->rcvq, fwd->rcvq + i, fwd->nrcvq * sizeof(fwd->rcvq[0]));
-        proxy_evctl(proxy, EPOLLOUT, 1);
+        proxy_evctl(proxy, EPOLLOUT, EVSET);
     } else {
-        proxy_evctl(proxy, EPOLLOUT, 0);
+        proxy_evctl(proxy, EPOLLOUT, EVCLR);
     }
 
     free(heapbuff);
@@ -411,7 +411,7 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
 
         nread = proxy_recv(proxy, p->payload, p->len);
         if (nread == -EAGAIN) {
-            proxy_evctl(proxy, EPOLLIN, 1);
+            proxy_evctl(proxy, EPOLLIN, EVSET);
             pbuf_free(p);
             return ERR_OK;
         } else if (nread < 0) {
@@ -446,7 +446,7 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
     }
 
     /* no space in sndq available or proxy EOF, stop polling EPOLLIN */
-    proxy_evctl(proxy, EPOLLIN, 0);
+    proxy_evctl(proxy, EPOLLIN, EVCLR);
 
     /* received EOF from proxy, and all datas has been sent to lwip,
        forward this EOF to lwip now */
@@ -488,7 +488,7 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
     while (fwd->rcvq) {
         nsent = proxy_send(proxy, fwd->rcvq->payload, fwd->rcvq->len);
         if (nsent == -EAGAIN) {
-            proxy_evctl(proxy, EPOLLOUT, 1);
+            proxy_evctl(proxy, EPOLLOUT, EVSET);
             return ERR_OK;
         } else if (nsent < 0) {
             logwarn("tcp_proxy_output: proxy error, force destroy fwd, "
@@ -502,7 +502,7 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
     }
 
     /* rcvq is now empty, stop polling EPOLLOUT */
-    proxy_evctl(proxy, EPOLLOUT, 0);
+    proxy_evctl(proxy, EPOLLOUT, EVCLR);
 
     /* received EOF from lwip, and all datas has been sent to proxy,
        forward this EOF to proxy now */
@@ -630,7 +630,7 @@ static void udp_assoc_io_event(void *userp, unsigned int events, int status)
         core->assoccd = 1 << cdexp; /* exponent backoff */
     } else {
         /* UDP_ASSOCIATE succeed */
-        proxy_evctl(core->udpassoc, EPOLLOUT, 0);
+        proxy_evctl(core->udpassoc, EPOLLOUT, EVCLR);
         core->assocready = 1;
         core->assocretries = 0;
         for (fwd = core->udplst; fwd;) {

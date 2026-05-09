@@ -5,7 +5,7 @@ struct proxy;
 
 struct proxy_ops {
     int (*shutdown)(struct proxy *proxy, int how, int rst);
-    int (*evctl)(struct proxy *proxy, unsigned int events, int enable);
+    int (*evctl)(struct proxy *proxy, unsigned int events, int mode);
     ssize_t (*send)(struct proxy *proxy, const char *data, size_t len);
     ssize_t (*recv)(struct proxy *proxy, char *data, size_t len);
     void (*get)(struct proxy *proxy);
@@ -17,6 +17,17 @@ struct proxy_ops {
  */
 struct proxy {
     struct proxy_ops const *ops;
+};
+
+/* evctl mode:
+   - EVCLR: bits-clear, remove those events from interest mask
+   - EVSET: bits-set, add those events to interest mask
+   - EVUPD: update, assign interest mask
+*/
+enum {
+    EVCLR = 0,
+    EVSET = 1,
+    EVUPD = 2,
 };
 
 /* shutdown function
@@ -31,13 +42,12 @@ static inline int proxy_shutdown(struct proxy *proxy, int how, int rst)
 
 /* event control function
    'events' is same as epoll_ctl(2)
-   'enable' indicate bits contain in event should be set or unset
+   'mode' see 'evctl mode'
    return 0 if no error, or -errno if error
 */
-static inline int proxy_evctl(struct proxy *proxy, unsigned int events,
-                               int enable)
+static inline int proxy_evctl(struct proxy *proxy, unsigned int events, int mode)
 {
-    return proxy->ops->evctl(proxy, events, enable);
+    return proxy->ops->evctl(proxy, events, mode);
 }
 
 /* send function
