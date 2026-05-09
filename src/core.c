@@ -199,11 +199,17 @@ static void tcp_forward_destroy(struct tcp_forward *fwd, int force)
 
     /* free pcb */
     if (fwd->pcb) {
+        /* avoid tcp_close() calls callback functions again */
+        tcp_arg(fwd->pcb, NULL);
+        tcp_sent(fwd->pcb, NULL);
+        tcp_recv(fwd->pcb, NULL);
         tcp_err(fwd->pcb, NULL);
-        if (force)
+        if (force) {
             tcp_abort(fwd->pcb);
-        else
-            tcp_close(fwd->pcb);
+        } else {
+            if (tcp_close(fwd->pcb) != ERR_OK)
+                tcp_abort(fwd->pcb); /* gracefully closing falied, force close */
+        }
     }
 
     /* free proxy */
@@ -262,8 +268,10 @@ static void udp_forward_destroy(struct udp_forward *fwd)
         pbuf_free(fwd->rcvq[fwd->nrcvq]);
 
     /* free pcb */
-    if (fwd->pcb)
+    if (fwd->pcb) {
+        udp_recv(fwd->pcb, NULL, NULL);
         udp_remove(fwd->pcb);
+    }
 
     /* free proxy */
     if (fwd->proxy)
