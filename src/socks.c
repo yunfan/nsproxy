@@ -658,9 +658,7 @@ static ssize_t socks_recv(struct proxy *proxy, char *data, size_t size)
         struct socks5addr ad;
         ssize_t ret, offset = 0;
 
-        /* if it's a bad packet, drop ,and return -EAGAIN to tell user to retry
-         */
-
+        /* if it's a bad packet, drop and return -EAGAIN */
         ret = socks5_hdr_get(&hdr, data + offset, nread - offset);
         if (ret == -1)
             return -EAGAIN;
@@ -671,6 +669,12 @@ static ssize_t socks_recv(struct proxy *proxy, char *data, size_t size)
             return -EAGAIN;
         offset += ret;
 
+        /* RFC1928: an implementation that does not support fragmentation MUST
+           drop any datagram whose FRAG field is other than X'00' */
+        if (hdr.frag != 0)
+            return -EAGAIN;
+
+        /* good, remove header for user */
         memmove(data, data + offset, nread - offset);
         nread -= offset;
     }
