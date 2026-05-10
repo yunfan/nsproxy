@@ -647,45 +647,45 @@ static ssize_t socks_send(struct proxy *proxy, const char *data, size_t size)
 static ssize_t socks_recv(struct proxy *proxy, char *data, size_t size)
 {
     struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
-    ssize_t nread;
 
     if (self->phase == PHASE_FAILED)
         return -ECONNABORTED; /* handshake failed */
     else if (self->phase != PHASE_FORWARDING)
         return -EAGAIN; /* handshake is not finished */
 
-    nread = skutils_recv(&self->info, self->sfd, data, size);
-    if (nread < 0)
+    /* for-loop will retry if bad UDP packet has been received,
+       I think goto is more readable, but there's always some who don't like it */
+    for (;;) {
+        ssize_t nread = skutils_recv(&self->info, self->sfd, data, size);
+        if (nread < 0)
+            return nread;
+
+        /* is udp, parse and remove header */
+        if (self->type == UDP_FORWARD) {
+            struct socks5hdr hdr;
+            struct socks5addr ad;
+            ssize_t ret, offs = 0;
+
+            if ((ret = socks5_hdr_get(&hdr, data + offs, nread - offs)) < 0)
+                continue; /* bad header, retry */
+            offs += ret;
+
+            if ((ret = socks5_addr_get(&ad, data + offs, nread - offs)) < 0)
+                continue; /* bad address, retry */
+            offs += ret;
+
+            /* RFC1928: an implementation that does not support fragmentation
+               MUST drop any datagram whose FRAG field is other than X'00' */
+            if (hdr.frag != 0)
+                continue; /* frag packet, retry */
+
+            /* good, remove header for user */
+            memmove(data, data + offs, nread - offs);
+            nread -= offs;
+        }
+
         return nread;
-
-    /* is udp, parse and remove header */
-    if (self->type == UDP_FORWARD) {
-        struct socks5hdr hdr;
-        struct socks5addr ad;
-        ssize_t ret, offset = 0;
-
-        /* if it's a bad packet, drop and return -EAGAIN */
-        ret = socks5_hdr_get(&hdr, data + offset, nread - offset);
-        if (ret == -1)
-            return -EAGAIN;
-        offset += ret;
-
-        ret = socks5_addr_get(&ad, data + offset, nread - offset);
-        if (ret == -1)
-            return -EAGAIN;
-        offset += ret;
-
-        /* RFC1928: an implementation that does not support fragmentation MUST
-           drop any datagram whose FRAG field is other than X'00' */
-        if (hdr.frag != 0)
-            return -EAGAIN;
-
-        /* good, remove header for user */
-        memmove(data, data + offset, nread - offset);
-        nread -= offset;
     }
-
-    return nread;
 }
 
 /* impl for struct proxy :: get */
