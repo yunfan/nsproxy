@@ -617,13 +617,13 @@ static void tcp_lwip_err(void *arg, err_t err)
 }
 
 /* handle events in in struct proxy, for UDP associate connection */
-static void udp_assoc_io_event(void *userp, unsigned int events, int status)
+static void udp_assoc_io_event(void *userp, unsigned int events)
 {
     struct corectx *core = userp;
     struct udp_forward *fwd;
     int cdexp;
 
-    if (events != EPOLLOUT || status < 0) {
+    if (events != EPOLLOUT) {
         /* UDP_ASSOCIATE failed, remove this connection */
         proxy_put(core->udpassoc);
         core->udpassoc = NULL;
@@ -651,13 +651,10 @@ static void udp_assoc_io_event(void *userp, unsigned int events, int status)
 }
 
 /* handle event occured in connection connected to proxy server */
-static void udp_proxy_io_event(void *userp, unsigned int events, int status)
+static void udp_proxy_io_event(void *userp, unsigned int events)
 {
     struct udp_forward *fwd = userp;
     err_t err = ERR_OK;
-
-    /* UDP no need to handshake, should not report this value */
-    assert(status >= 0);
 
     if (!err && (events & EPOLLIN))
         err = udp_proxy_input(fwd);
@@ -670,22 +667,19 @@ static void udp_proxy_io_event(void *userp, unsigned int events, int status)
 }
 
 /* handle events occured in connection connected to proxy server */
-static void tcp_proxy_io_event(void *userp, unsigned int events, int status)
+static void tcp_proxy_io_event(void *userp, unsigned int events)
 {
     struct tcp_forward *fwd = userp;
     err_t err = ERR_OK;
 
-    /* handshake with proxy server failed */
-    if (status < 0) {
-        tcp_forward_destroy(fwd, 1);
-        return;
-    }
-
-    /* There's may some confuse that we don't care EPOLLERR here
-       see select(2)
-    */
+    /* There's may some confuse that we don't care EPOLLERR here. We add fd to
+       epoll instance iff we are interested in either EPOLLIN or EPOLLOUT, which
+       is always return together with EPOLLERR if socket error. (see select(2)).
+       That's means socket error will be handled in tcp_proxy_{input|output}
+       Ignore EPOLLERR here not only for reduce codes in error path, but also
+       avoid data lost if proxy sent DATA+RST */
     if (events & EPOLLERR)
-        assert(events & (EPOLLIN | EPOLLOUT));
+        assert(events & (EPOLLIN | EPOLLOUT)); /* note that fact to you */
 
     if (!err && (events & EPOLLIN))
         err = tcp_proxy_input(fwd);

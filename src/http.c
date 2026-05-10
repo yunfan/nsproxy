@@ -12,7 +12,8 @@
 #define HTTP_HS_BUFF 4096
 
 enum {
-    PHASE_SEND_REQUEST = 1,
+    PHASE_FAILED = 0,
+    PHASE_SEND_REQUEST,
     PHASE_RECV_REPLY,
     PHASE_FORWARDING
 };
@@ -186,7 +187,8 @@ static void http_handshake_input(struct proxy_http *self)
     return;
 
 failed_handshake:
-    self->userev(self->userp, 0, PROXY_ABORT);
+    self->phase = PHASE_FAILED;
+    self->userev(self->userp, EPOLLIN | EPOLLOUT | EPOLLERR);
 }
 
 /* epoll event callback
@@ -239,7 +241,8 @@ static void http_handshake_output(struct proxy_http *self)
     if (nsent == -1) {
         if (errno != EAGAIN) {
             http_handshake_perror(self, errno);
-            self->userev(self->userp, 0, PROXY_ABORT);
+            self->phase = PHASE_FAILED;
+            self->userev(self->userp, EPOLLIN | EPOLLOUT | EPOLLERR);
         }
         return;
     }
@@ -263,7 +266,10 @@ static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
 
     /* we don't care events after handshaked, just forward event to user */
     if (self->phase == PHASE_FORWARDING) {
-        self->userev(self->userp, events, PROXY_CONT);
+        self->userev(self->userp, events);
+        return;
+    } else if (self->phase == PHASE_FAILED) {
+        self->userev(self->userp, EPOLLIN | EPOLLOUT | EPOLLERR);
         return;
     }
 
@@ -301,18 +307,26 @@ static int http_evctl(struct proxy *proxy, unsigned int event, int mode)
 static ssize_t http_send(struct proxy *proxy, const char *data, size_t size)
 {
     struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
-    return self->phase != PHASE_FORWARDING
-               ? -EAGAIN
-               : skutils_send(&self->info, self->sfd, data, size);
+
+    if (self->phase == PHASE_FAILED)
+        return -ECONNABORTED; /* handshake failed */
+    else if (self->phase != PHASE_FORWARDING)
+        return -EAGAIN; /* handshake is not finished */
+
+    return skutils_send(&self->info, self->sfd, data, size);
 }
 
 /* impl for struct proxy :: recv */
 static ssize_t http_recv(struct proxy *proxy, char *data, size_t size)
 {
     struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
-    return self->phase != PHASE_FORWARDING
-               ? -EAGAIN
-               : skutils_recv(&self->info, self->sfd, data, size);
+
+    if (self->phase == PHASE_FAILED)
+        return -ECONNABORTED; /* handshake failed */
+    else if (self->phase != PHASE_FORWARDING)
+        return -EAGAIN; /* handshake is not finished */
+
+    return skutils_recv(&self->info, self->sfd, data, size);
 }
 
 /* impl for struct proxy :: get */

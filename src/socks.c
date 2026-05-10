@@ -13,7 +13,8 @@
 
 /* socks handshake phases */
 enum {
-    PHASE_SEND_METHOD = 1,
+    PHASE_FAILED = 0,
+    PHASE_SEND_METHOD,
     PHASE_RECV_METHOD,
     PHASE_SEND_AUTH,
     PHASE_RECV_AUTH,
@@ -327,7 +328,8 @@ static void socks_handshake_output(struct proxy_socks *self)
     if (nsent == -1) {
         if (errno != EAGAIN) {
             socks_handshake_perror(self, errno);
-            self->userev(self->userp, 0, PROXY_ABORT);
+            self->phase = PHASE_FAILED;
+            self->userev(self->userp, EPOLLIN | EPOLLOUT | EPOLLERR);
         }
         return;
     }
@@ -547,7 +549,8 @@ static void socks_handshake_input(struct proxy_socks *self)
     return;
 
 failed_handshake:
-    self->userev(self->userp, 0, PROXY_ABORT);
+    self->phase = PHASE_FAILED;
+    self->userev(self->userp, EPOLLIN | EPOLLOUT | EPOLLERR);
 }
 
 static void socks_epcb_events(struct epcb_ops *epcb, unsigned int events)
@@ -556,7 +559,10 @@ static void socks_epcb_events(struct epcb_ops *epcb, unsigned int events)
 
     /* we don't care events after handshaked, just forward event to user */
     if (self->phase == PHASE_FORWARDING) {
-        self->userev(self->userp, events, PROXY_CONT);
+        self->userev(self->userp, events);
+        return;
+    } else if (self->phase == PHASE_FAILED) {
+        self->userev(self->userp, EPOLLIN | EPOLLOUT | EPOLLERR);
         return;
     }
 
@@ -596,10 +602,10 @@ static ssize_t socks_send(struct proxy *proxy, const char *data, size_t size)
 {
     struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
 
-    /* handshake is not finished */
-    if (self->phase != PHASE_FORWARDING) {
-        return -EAGAIN;
-    }
+    if (self->phase == PHASE_FAILED)
+        return -ECONNABORTED; /* handshake failed */
+    else if (self->phase != PHASE_FORWARDING)
+        return -EAGAIN; /* handshake is not finished */
 
     if (self->type == UDP_FORWARD) {
         char buffer[512]; /* for socks header only  */
@@ -643,10 +649,10 @@ static ssize_t socks_recv(struct proxy *proxy, char *data, size_t size)
     struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
     ssize_t nread;
 
-    /* handshake is not finished */
-    if (self->phase != PHASE_FORWARDING) {
-        return -EAGAIN;
-    }
+    if (self->phase == PHASE_FAILED)
+        return -ECONNABORTED; /* handshake failed */
+    else if (self->phase != PHASE_FORWARDING)
+        return -EAGAIN; /* handshake is not finished */
 
     nread = skutils_recv(&self->info, self->sfd, data, size);
     if (nread < 0)
