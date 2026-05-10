@@ -367,27 +367,23 @@ static err_t udp_proxy_output(struct udp_forward *fwd)
                 nsent = proxy_send(proxy, heapbuff, p->tot_len);
             }
         }
-        if (nsent == -EAGAIN) {
-            break;
-        } else if (nsent < 0) {
+        /* EAGAIN is not fatal error, and will not handle in UDP, ignore */
+        if (nsent < 0 && nsent != -EAGAIN) {
             logwarn("udp_proxy_output: proxy error, force destroy fwd, "
                     "reason: %s", strerror(-nsent));
             goto failed_abort;
-        } else {
-            /* succeed */
-            pbuf_free(p);
         }
+        /* don't pbuf_free(p) here, if some packet sent succeed and some failed,
+           it will leave a half-free'ed rcvq. */
     }
 
-    fwd->nrcvq -= i;
+    /* no fatal error, free rcvq */
+    for (i = 0; i < fwd->nrcvq; i++)
+        pbuf_free(fwd->rcvq[i]);
+    fwd->nrcvq = 0;
 
-    if (fwd->nrcvq > 0) {
-        /* EAGAIN happened at i packet*/
-        memmove(fwd->rcvq, fwd->rcvq + i, fwd->nrcvq * sizeof(fwd->rcvq[0]));
-        proxy_evctl(proxy, EPOLLOUT, EVSET);
-    } else {
-        proxy_evctl(proxy, EPOLLOUT, EVCLR);
-    }
+    /* rcvq is empty, stop polling EPOLLOUT */
+    proxy_evctl(proxy, EPOLLOUT, EVCLR);
 
     free(heapbuff);
     return ERR_OK;
