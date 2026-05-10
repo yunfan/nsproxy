@@ -605,7 +605,7 @@ static ssize_t socks_send(struct proxy *proxy, const char *data, size_t size)
     if (self->phase == PHASE_FAILED)
         return -ECONNABORTED; /* handshake failed */
     else if (self->phase != PHASE_FORWARDING)
-        return -EAGAIN; /* handshake is not finished */
+        return -EINPROGRESS; /* handshake is not finished */
 
     if (self->type == UDP_FORWARD) {
         char buffer[512]; /* for socks header only  */
@@ -651,7 +651,7 @@ static ssize_t socks_recv(struct proxy *proxy, char *data, size_t size)
     if (self->phase == PHASE_FAILED)
         return -ECONNABORTED; /* handshake failed */
     else if (self->phase != PHASE_FORWARDING)
-        return -EAGAIN; /* handshake is not finished */
+        return -EINPROGRESS; /* handshake is not finished */
 
     /* for-loop will retry if bad UDP packet has been received,
        I think goto is more readable, but there's always some who don't like it */

@@ -311,7 +311,7 @@ static ssize_t http_send(struct proxy *proxy, const char *data, size_t size)
     if (self->phase == PHASE_FAILED)
         return -ECONNABORTED; /* handshake failed */
     else if (self->phase != PHASE_FORWARDING)
-        return -EAGAIN; /* handshake is not finished */
+        return -EINPROGRESS; /* handshake is not finished */
 
     return skutils_send(&self->info, self->sfd, data, size);
 }
@@ -324,7 +324,7 @@ static ssize_t http_recv(struct proxy *proxy, char *data, size_t size)
     if (self->phase == PHASE_FAILED)
         return -ECONNABORTED; /* handshake failed */
     else if (self->phase != PHASE_FORWARDING)
-        return -EAGAIN; /* handshake is not finished */
+        return -EINPROGRESS; /* handshake is not finished */
 
     return skutils_recv(&self->info, self->sfd, data, size);
 }
