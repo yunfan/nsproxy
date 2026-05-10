@@ -187,6 +187,11 @@ static struct tcp_forward *tcp_forward_create(struct corectx *core)
 static void tcp_forward_destroy(struct tcp_forward *fwd, int force)
 {
     struct corectx *core = fwd->core;
+    int rst = 0;
+
+    /* queues not drained, breaks TCP reliable delivery semantics, RST */
+    if (fwd->sndq != NULL || fwd->rcvq != NULL)
+        rst = 1;
 
     /* remove from list */
     if (fwd->prev != NULL)
@@ -204,7 +209,7 @@ static void tcp_forward_destroy(struct tcp_forward *fwd, int force)
         tcp_sent(fwd->pcb, NULL);
         tcp_recv(fwd->pcb, NULL);
         tcp_err(fwd->pcb, NULL);
-        if (force) {
+        if (force || rst) {
             tcp_abort(fwd->pcb);
         } else {
             if (tcp_close(fwd->pcb) != ERR_OK)
@@ -214,7 +219,7 @@ static void tcp_forward_destroy(struct tcp_forward *fwd, int force)
 
     /* free proxy */
     if (fwd->proxy) {
-        if (force)
+        if (force || rst)
             proxy_shutdown(fwd->proxy, SHUT_RDWR, 1);
         proxy_put(fwd->proxy);
     }
@@ -947,7 +952,7 @@ failed_after_malloc:
 void core_deinit(struct corectx *core)
 {
     while (core->tcplst)
-        tcp_forward_destroy(core->tcplst, 0);
+        tcp_forward_destroy(core->tcplst, 1);
     while (core->udplst)
         udp_forward_destroy(core->udplst);
 
