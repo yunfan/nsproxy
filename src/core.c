@@ -163,74 +163,10 @@ static err_t tunif_init(struct netif *netif)
     return ERR_OK;
 }
 
-/* Create a new tcp_forward instance and add to list */
-static struct tcp_forward *tcp_forward_create(struct corectx *core)
+static void core_tunfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
 {
-    struct tcp_forward *fwd = calloc(1, sizeof(*fwd));
-    if (fwd == NULL)
-        oom();
-
-    fwd->core = core;
-    fwd->gc = NSPROXY_TCP_IDLE_TIMEOUT;
-
-    /* Add to head of list */
-    fwd->next = core->tcplst;
-    if (core->tcplst != NULL) {
-        core->tcplst->prev = fwd;
-    }
-    core->tcplst = fwd;
-
-    return fwd;
-}
-
-/* Destroy a tcp_forward instance and remove from list */
-static void tcp_forward_destroy(struct tcp_forward *fwd, int force)
-{
-    struct corectx *core = fwd->core;
-    int rst = 0;
-
-    /* queues not drained, breaks TCP reliable delivery semantics, RST */
-    if (fwd->sndq != NULL || fwd->rcvq != NULL)
-        rst = 1;
-
-    /* remove from list */
-    if (fwd->prev != NULL)
-        fwd->prev->next = fwd->next;
-    else
-        core->tcplst = fwd->next;
-
-    if (fwd->next != NULL)
-        fwd->next->prev = fwd->prev;
-
-    /* free pcb */
-    if (fwd->pcb) {
-        /* avoid tcp_close() calls callback functions again */
-        tcp_arg(fwd->pcb, NULL);
-        tcp_sent(fwd->pcb, NULL);
-        tcp_recv(fwd->pcb, NULL);
-        tcp_err(fwd->pcb, NULL);
-        if (force || rst) {
-            tcp_abort(fwd->pcb);
-        } else {
-            if (tcp_close(fwd->pcb) != ERR_OK)
-                tcp_abort(fwd->pcb); /* gracefully closing falied, force close */
-        }
-    }
-
-    /* free proxy */
-    if (fwd->proxy) {
-        if (force || rst)
-            proxy_shutdown(fwd->proxy, SHUT_RDWR, 1);
-        proxy_put(fwd->proxy);
-    }
-
-    /* free queues */
-    if (fwd->sndq)
-        pbuf_free(fwd->sndq);
-    if (fwd->rcvq)
-        pbuf_free(fwd->rcvq);
-
-    free(fwd);
+    struct corectx *core = container_of(epcb, struct corectx, tunepcb);
+    tun_input(&core->tunif);
 }
 
 /* Create a new udp_forward instance and add to list */
@@ -394,6 +330,209 @@ failed_abort:
     return ERR_ABRT;
 }
 
+/* called by lwip when data has received from application,
+   this function push the received data to receive queue
+*/
+static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
+                              const ip_addr_t *addr, u16_t port)
+{
+    struct udp_forward *fwd = arg;
+    struct corectx *core = fwd->core;
+
+    if (!p) {
+        /* should not happen */
+        udp_forward_destroy(fwd);
+        return;
+    }
+
+    if (fwd->nrcvq == arraysizeof(fwd->rcvq)) {
+        /* receive queue full, drop oldest data in queue and enqueue this */
+        pbuf_free(fwd->rcvq[0]);
+        memmove(fwd->rcvq, fwd->rcvq + 1,
+                (arraysizeof(fwd->rcvq) - 1) * sizeof(fwd->rcvq[0]));
+        fwd->rcvq[arraysizeof(fwd->rcvq) - 1] = p;
+    } else {
+        fwd->rcvq[fwd->nrcvq++] = p;
+    }
+
+    if (core->assocready)
+        udp_proxy_output(fwd);
+}
+
+/* handle event occured in connection connected to proxy server */
+static void udp_proxy_io_event(void *userp, unsigned int events)
+{
+    struct udp_forward *fwd = userp;
+    err_t err = ERR_OK;
+
+    if (!err && (events & EPOLLIN))
+        err = udp_proxy_input(fwd);
+
+    if (!err && (events & EPOLLOUT))
+        err = udp_proxy_output(fwd);
+
+    if (!err && (events & EPOLLERR))
+        udp_forward_destroy(fwd);
+}
+
+/* called by lwip when a udp connection is create
+   this function create a connection to proxy server and set lwip udp_recv() up
+*/
+err_t core_udp_new(struct udp_pcb *pcb)
+{
+    struct corectx *core = ip_current_netif()->state;
+    struct nspconf *conf = current_nspconf();
+    struct udp_forward *fwd;
+    char ip[IPADDR_STRLEN_MAX + 1];
+
+    fwd = udp_forward_create(core);
+    fwd->pcb = pcb;
+    fwd->gc = pcb->local_port == 53 ? NSPROXY_DNS_IDLE_TIMEOUT
+                                    : NSPROXY_UDP_IDLE_TIMEOUT;
+
+    udp_recv(pcb, udp_lwip_received, fwd);
+
+    /* DNS redirection */
+    if (is_gateway(&core->tunif, &pcb->local_ip) && pcb->local_port == 53
+        && conf->dnstype != DNS_REDIR_OFF) {
+        if (conf->dnstype == DNS_REDIR_TCP)
+            fwd->proxy = tcpdns_create(core->loop, &udp_proxy_io_event, fwd);
+        else
+            fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
+                                           conf->dnssrv, conf->dnsport);
+        goto end;
+    }
+
+    /* forward gateway to host namespace  */
+    if (is_gateway(&core->tunif, &pcb->local_ip)) {
+        const char *localhost = IP_IS_V4(&pcb->local_ip) ? "127.0.0.1" : "::1";
+        fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
+                                       localhost, pcb->local_port);
+        goto end;
+    }
+
+    ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
+    if (conf->proxytype == PROXY_SOCKS5 && core->assocready) {
+        fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd, ip,
+                                      pcb->local_port, core->udpassoc);
+    } else if (conf->proxytype == PROXY_DIRECT) {
+        fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd, ip,
+                                       pcb->local_port);
+    }
+
+end:
+    if (fwd->proxy == NULL) {
+        udp_forward_destroy(fwd);
+        return ERR_ABRT;
+    } else {
+        return ERR_OK;
+    }
+}
+
+/* handle events in in struct proxy, for UDP associate connection */
+static void udp_assoc_io_event(void *userp, unsigned int events)
+{
+    struct corectx *core = userp;
+    struct udp_forward *fwd;
+    int cdexp;
+
+    if (events != EPOLLOUT) {
+        /* UDP_ASSOCIATE failed, remove this connection */
+        proxy_put(core->udpassoc);
+        core->udpassoc = NULL;
+        core->assocready = 0;
+
+        /* also remove all UDP_FORWARD connections */
+        while (core->udplst)
+            udp_forward_destroy(core->udplst);
+
+        /* set countdown, timer will re-associate after it expires */
+        cdexp = core->assocretries <= 5 ? core->assocretries : 5;
+        core->assoccd = 1 << cdexp; /* exponent backoff */
+    } else {
+        /* UDP_ASSOCIATE succeed */
+        proxy_evctl(core->udpassoc, EPOLLOUT, EVCLR);
+        core->assocready = 1;
+        core->assocretries = 0;
+        for (fwd = core->udplst; fwd;) {
+            /* fwd may be free'ed in udp_proxy_output, save next first */
+            struct udp_forward *next = fwd->next;
+            udp_proxy_output(fwd);
+            fwd = next;
+        }
+    }
+}
+
+/* Create a new tcp_forward instance and add to list */
+static struct tcp_forward *tcp_forward_create(struct corectx *core)
+{
+    struct tcp_forward *fwd = calloc(1, sizeof(*fwd));
+    if (fwd == NULL)
+        oom();
+
+    fwd->core = core;
+    fwd->gc = NSPROXY_TCP_IDLE_TIMEOUT;
+
+    /* Add to head of list */
+    fwd->next = core->tcplst;
+    if (core->tcplst != NULL) {
+        core->tcplst->prev = fwd;
+    }
+    core->tcplst = fwd;
+
+    return fwd;
+}
+
+/* Destroy a tcp_forward instance and remove from list */
+static void tcp_forward_destroy(struct tcp_forward *fwd, int force)
+{
+    struct corectx *core = fwd->core;
+    int rst = 0;
+
+    /* queues not drained, breaks TCP reliable delivery semantics, RST */
+    if (fwd->sndq != NULL || fwd->rcvq != NULL)
+        rst = 1;
+
+    /* remove from list */
+    if (fwd->prev != NULL)
+        fwd->prev->next = fwd->next;
+    else
+        core->tcplst = fwd->next;
+
+    if (fwd->next != NULL)
+        fwd->next->prev = fwd->prev;
+
+    /* free pcb */
+    if (fwd->pcb) {
+        /* avoid tcp_close() calls callback functions again */
+        tcp_arg(fwd->pcb, NULL);
+        tcp_sent(fwd->pcb, NULL);
+        tcp_recv(fwd->pcb, NULL);
+        tcp_err(fwd->pcb, NULL);
+        if (force || rst) {
+            tcp_abort(fwd->pcb);
+        } else {
+            if (tcp_close(fwd->pcb) != ERR_OK)
+                tcp_abort(fwd->pcb); /* gracefully closing falied, force close */
+        }
+    }
+
+    /* free proxy */
+    if (fwd->proxy) {
+        if (force || rst)
+            proxy_shutdown(fwd->proxy, SHUT_RDWR, 1);
+        proxy_put(fwd->proxy);
+    }
+
+    /* free queues */
+    if (fwd->sndq)
+        pbuf_free(fwd->sndq);
+    if (fwd->rcvq)
+        pbuf_free(fwd->rcvq);
+
+    free(fwd);
+}
+
 /* Try to recv data from proxy server and send to application
    May called from lwip context if
    - data are ack'ed by lwip
@@ -529,35 +668,6 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
     return ERR_OK;
 }
 
-/* called by lwip when data has received from application,
-   this function push the received data to receive queue
-*/
-static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
-                              const ip_addr_t *addr, u16_t port)
-{
-    struct udp_forward *fwd = arg;
-    struct corectx *core = fwd->core;
-
-    if (!p) {
-        /* should not happen */
-        udp_forward_destroy(fwd);
-        return;
-    }
-
-    if (fwd->nrcvq == arraysizeof(fwd->rcvq)) {
-        /* receive queue full, drop oldest data in queue and enqueue this */
-        pbuf_free(fwd->rcvq[0]);
-        memmove(fwd->rcvq, fwd->rcvq + 1,
-                (arraysizeof(fwd->rcvq) - 1) * sizeof(fwd->rcvq[0]));
-        fwd->rcvq[arraysizeof(fwd->rcvq) - 1] = p;
-    } else {
-        fwd->rcvq[fwd->nrcvq++] = p;
-    }
-
-    if (core->assocready)
-        udp_proxy_output(fwd);
-}
-
 /* called by lwip when application acked data,
    this function free sending queue, and ask more data from proxy server
 */
@@ -617,56 +727,6 @@ static void tcp_lwip_err(void *arg, err_t err)
     }
 }
 
-/* handle events in in struct proxy, for UDP associate connection */
-static void udp_assoc_io_event(void *userp, unsigned int events)
-{
-    struct corectx *core = userp;
-    struct udp_forward *fwd;
-    int cdexp;
-
-    if (events != EPOLLOUT) {
-        /* UDP_ASSOCIATE failed, remove this connection */
-        proxy_put(core->udpassoc);
-        core->udpassoc = NULL;
-        core->assocready = 0;
-
-        /* also remove all UDP_FORWARD connections */
-        while (core->udplst)
-            udp_forward_destroy(core->udplst);
-
-        /* set countdown, timer will re-associate after it expires */
-        cdexp = core->assocretries <= 5 ? core->assocretries : 5;
-        core->assoccd = 1 << cdexp; /* exponent backoff */
-    } else {
-        /* UDP_ASSOCIATE succeed */
-        proxy_evctl(core->udpassoc, EPOLLOUT, EVCLR);
-        core->assocready = 1;
-        core->assocretries = 0;
-        for (fwd = core->udplst; fwd;) {
-            /* fwd may be free'ed in udp_proxy_output, save next first */
-            struct udp_forward *next = fwd->next;
-            udp_proxy_output(fwd);
-            fwd = next;
-        }
-    }
-}
-
-/* handle event occured in connection connected to proxy server */
-static void udp_proxy_io_event(void *userp, unsigned int events)
-{
-    struct udp_forward *fwd = userp;
-    err_t err = ERR_OK;
-
-    if (!err && (events & EPOLLIN))
-        err = udp_proxy_input(fwd);
-
-    if (!err && (events & EPOLLOUT))
-        err = udp_proxy_output(fwd);
-
-    if (!err && (events & EPOLLERR))
-        udp_forward_destroy(fwd);
-}
-
 /* handle events occured in connection connected to proxy server */
 static void tcp_proxy_io_event(void *userp, unsigned int events)
 {
@@ -691,60 +751,6 @@ static void tcp_proxy_io_event(void *userp, unsigned int events)
     if (!err && !fwd->pcb->proxyestab) {
         fwd->pcb->proxyestab = 1;
         err = tcp_output(fwd->pcb);
-    }
-}
-
-/* called by lwip when a udp connection is create
-   this function create a connection to proxy server and set lwip udp_recv() up
-*/
-err_t core_udp_new(struct udp_pcb *pcb)
-{
-    struct corectx *core = ip_current_netif()->state;
-    struct nspconf *conf = current_nspconf();
-    struct udp_forward *fwd;
-    char ip[IPADDR_STRLEN_MAX + 1];
-
-    fwd = udp_forward_create(core);
-    fwd->pcb = pcb;
-    fwd->gc = pcb->local_port == 53 ? NSPROXY_DNS_IDLE_TIMEOUT
-                                    : NSPROXY_UDP_IDLE_TIMEOUT;
-
-    udp_recv(pcb, udp_lwip_received, fwd);
-
-    /* DNS redirection */
-    if (is_gateway(&core->tunif, &pcb->local_ip) && pcb->local_port == 53
-        && conf->dnstype != DNS_REDIR_OFF) {
-        if (conf->dnstype == DNS_REDIR_TCP)
-            fwd->proxy = tcpdns_create(core->loop, &udp_proxy_io_event, fwd);
-        else
-            fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
-                                           conf->dnssrv, conf->dnsport);
-        goto end;
-    }
-
-    /* forward gateway to host namespace  */
-    if (is_gateway(&core->tunif, &pcb->local_ip)) {
-        const char *localhost = IP_IS_V4(&pcb->local_ip) ? "127.0.0.1" : "::1";
-        fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
-                                       localhost, pcb->local_port);
-        goto end;
-    }
-
-    ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
-    if (conf->proxytype == PROXY_SOCKS5 && core->assocready) {
-        fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd, ip,
-                                      pcb->local_port, core->udpassoc);
-    } else if (conf->proxytype == PROXY_DIRECT) {
-        fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd, ip,
-                                       pcb->local_port);
-    }
-
-end:
-    if (fwd->proxy == NULL) {
-        udp_forward_destroy(fwd);
-        return ERR_ABRT;
-    } else {
-        return ERR_OK;
     }
 }
 
@@ -834,12 +840,6 @@ static void core_reassoc_tmr(struct corectx *core)
             core->assocretries++;
         }
     }
-}
-
-static void core_tunfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
-{
-    struct corectx *core = container_of(epcb, struct corectx, tunepcb);
-    tun_input(&core->tunif);
 }
 
 static void core_timerfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
