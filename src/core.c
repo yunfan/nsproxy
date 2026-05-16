@@ -337,7 +337,6 @@ static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                               const ip_addr_t *addr, u16_t port)
 {
     struct udp_forward *fwd = arg;
-    struct corectx *core = fwd->core;
 
     if (!p) {
         /* should not happen */
@@ -355,7 +354,7 @@ static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
         fwd->rcvq[fwd->nrcvq++] = p;
     }
 
-    if (core->assocready)
+    if (fwd->proxy)
         udp_proxy_output(fwd);
 }
 
