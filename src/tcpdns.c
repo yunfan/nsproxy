@@ -233,7 +233,9 @@ static ssize_t tcpdns_recv(struct proxy *proxy, char *data, size_t size)
     if ((nread = read(master->evfd, &val, sizeof(val))) == -1)
         return -errno;
 
-    assert(nread == sizeof(val) && val == 1);
+    /* should not happened */
+    if (!(nread == sizeof(val) && val == 1))
+        return -EIO;
 
     /* find first worker which marked done */
     for (worker = master->workers; worker; worker = worker->next) {
