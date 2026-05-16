@@ -431,8 +431,9 @@ static int recv_fd(int sock)
     }
 
     cmsg = CMSG_FIRSTHDR(&msg);
-    if (cmsg == NULL || cmsg->cmsg_type != SCM_RIGHTS) {
-        fprintf(stderr, "nsproxy: empty cmsg in recv_fd()\n");
+    if (cmsg == NULL || cmsg->cmsg_type != SCM_RIGHTS
+        || cmsg->cmsg_len != CMSG_LEN(sizeof(ret))) {
+        fprintf(stderr, "nsproxy: bad cmsg in recv_fd()\n");
         exit(EXIT_FAILURE);
     }
 
