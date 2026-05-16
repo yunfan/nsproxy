@@ -12,6 +12,7 @@
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/signalfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -359,6 +360,29 @@ failed_on_create:
     return -1;
 }
 
+/* raise RLIMIT_NOFILE soft limit to 'num' but not exceed hard limit
+   return 0 if succeed, -errno if failed */
+static int raise_nofile(unsigned int num)
+{
+    struct rlimit rl;
+    rlim_t old;
+
+    if (getrlimit(RLIMIT_NOFILE, &rl) == -1)
+        return -errno;
+    if (rl.rlim_cur > num) /* no need to raise */
+        return 0;
+    old = rl.rlim_cur;
+
+    /* set soft limit to num but not exceed hard limit */
+    rl.rlim_cur = (num <= rl.rlim_max) ? num : rl.rlim_max; 
+    if (setrlimit(RLIMIT_NOFILE, &rl) == -1)
+        return -errno;
+
+    loginfo("parent: raised nofile soft limit from %lu to %lu",
+            (unsigned long)old, (unsigned long)rl.rlim_cur);
+    return 0;
+}
+
 /* send a file descriptor to sock
    must succeed, otherwise terminate this process */
 static void send_fd(int sock, int fd)
@@ -464,6 +488,9 @@ static int parent(int sk)
         loglv0("Warning: Failed to set child subreaper, grandchild processes "
                "may not be tracked.");
     }
+
+    /* a little more than C10K, failure is not check */
+    raise_nofile(10240);
 
     tunfd = recv_fd(sk);
 
