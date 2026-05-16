@@ -245,6 +245,7 @@ static err_t udp_proxy_input(struct udp_forward *fwd)
         oom();
 
     for (;;) {
+        err_t err;
         ssize_t nread;
 
         p = pbuf_alloc_reference(buffer, UDP_PACKET_MAXLEN, PBUF_REF);
@@ -265,12 +266,14 @@ static err_t udp_proxy_input(struct udp_forward *fwd)
         }
 
         pbuf_realloc(p, nread); /* set p->tot_len = nread */
-        if (udp_send(pcb, p) != ERR_OK) {
+        err = udp_send(pcb, p);
+        if (err != ERR_OK && err != ERR_MEM) {
             logwarn("udp_proxy_input: udp_send() failed, destroy fwd");
             udp_forward_destroy(fwd);
             ret = ERR_ABRT;
             break;
         }
+        /* ERR_MEM: TX queue full, ignore and drop */
 
         /* tun_output() is synchronous, reuse pbuf is possile, but we follow
            lwIP API semantics: call pbuf_free() immediately after udp_send().
@@ -632,10 +635,10 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
             else
                 pbuf_cat(fwd->sndq, p);
 
-            if (tcp_output(pcb) != ERR_OK) { /* don't delay */
-                logwarn("tcp_proxy_input: tcp_output() failed");
-                goto failed_abort;
-            };
+            /* Typically tcp_write() + tcp_output() calling sequence.
+               Failures are ignored since tcp_tmr() will auto retry as long as
+               data was enqueued by tcp_write() */
+            tcp_output(pcb);
         }
     }
 
@@ -658,7 +661,6 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
 
 failed_after_pbuf_alloc:
     pbuf_free(p);
-failed_abort:
     tcp_forward_destroy(fwd, 1);
     return ERR_ABRT;
 }
@@ -797,7 +799,7 @@ static void tcp_proxy_io_event(void *userp, unsigned int events)
 
     if (!err && !fwd->pcb->proxyestab) {
         fwd->pcb->proxyestab = 1;
-        err = tcp_output(fwd->pcb);
+        tcp_output(fwd->pcb);
     }
 }
 
