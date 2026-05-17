@@ -97,7 +97,7 @@ static ssize_t write_string(const char *fname, const char *str)
     int fd;
     ssize_t w;
 
-    if ((fd = open(fname, O_WRONLY | O_APPEND | O_CLOEXEC)) == -1) {
+    if ((fd = open(fname, O_WRONLY | O_TRUNC | O_CLOEXEC)) == -1) {
         return -errno;
     }
 
