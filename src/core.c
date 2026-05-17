@@ -494,10 +494,6 @@ static void udp_assoc_io_event(void *userp, unsigned int events)
         core->assocready = 0;
         core->assoccd = 1 << cdexp; /* exponent backoff */
 
-        /* also remove all UDP_FORWARD connections */
-        while (core->udplst)
-            udp_forward_destroy(core->udplst);
-
         return;
     }
 
