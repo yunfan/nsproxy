@@ -357,9 +357,8 @@ static int overwrite_conf(const char *target, const char *content, uint8_t ro)
         goto failed_after_create;
 
     if (ro) {
-        if (mount(tmpname, target, NULL,
-                  MS_BIND | MS_REMOUNT | MS_RDONLY, NULL) == -1)
-            goto failed_after_mount;
+        /* try to remount, failure is allow */
+        mount(tmpname, target, NULL, MS_BIND | MS_REMOUNT | MS_RDONLY, NULL);
     }
 
     loginfo("child: re-bound %s", target);
@@ -368,8 +367,6 @@ static int overwrite_conf(const char *target, const char *content, uint8_t ro)
     unlink(tmpname);
     return 0;
 
-failed_after_mount:
-    umount(target);
 failed_after_create:
     close(fd);
     unlink(tmpname);
