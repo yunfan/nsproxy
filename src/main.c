@@ -41,6 +41,7 @@
 #include "lwipopts.h"
 
 int nsproxy_verbose_level__ = 0;
+FILE *nsproxy_log_file__ = NULL;
 struct nspconf *nsproxy_current_nspconf__ = NULL;
 
 static void print_help(void)
@@ -77,10 +78,13 @@ static void print_help(void)
            "    dynamic CIDR rules. Lines support # comments and whitespace trim.\n"
            "  -6\n"
            "    Enable IPv6 support.\n"
+           "  -N\n"
+           "    Do not half-close the proxy socket when the application sends EOF.\n"
+           "    Useful for proxy transports without TCP half-close semantics.\n"
            "  -v\n"
            "    Verbose mode. Use \"-vv\" or \"-vvv\" for more verbose.\n"
-           "  -q\n"
-           "    Be quiet. Suppress output.\n"
+           "  -q [file]\n"
+           "    Without file, be quiet. With file, write nsproxy logs to file.\n"
            "  -h\n"
            "    Print this help message and exit.\n");
 }
@@ -992,6 +996,7 @@ int main(int argc, char *argv[])
     const char *serv = NULL;
     const char *port = NULL;
     const char *dns = NULL;
+    const char *logpath = NULL;
     char *auth = NULL;
     int ishttp = 0, isdirect = 0;
 
@@ -1000,7 +1005,7 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
     }
 
-    while ((opt = getopt(argc, argv, "+hHDs:p:d:a:L:F:M:G:qv6")) != -1) {
+    while ((opt = getopt(argc, argv, "+hHDNs:p:d:a:L:F:M:G:q::v6")) != -1) {
         switch (opt) {
         case 'h':
             print_help();
@@ -1010,6 +1015,9 @@ int main(int argc, char *argv[])
             break;
         case 'D': /* un-documented feature */
             isdirect = 1;
+            break;
+        case 'N':
+            conf.no_proxy_half_close = 1;
             break;
         case '6':
             conf.ipv6 = 1;
@@ -1050,7 +1058,13 @@ int main(int argc, char *argv[])
             nsproxy_verbose_level__++;
             break;
         case 'q':
-            nsproxy_verbose_level__ = -255;
+            if (optarg) {
+                logpath = optarg;
+            } else if (optind < argc && argv[optind][0] != '-') {
+                logpath = argv[optind++];
+            } else {
+                nsproxy_verbose_level__ = -255;
+            }
             break;
         default:
             exit(EXIT_FAILURE);
@@ -1198,6 +1212,21 @@ int main(int argc, char *argv[])
 
     current_nspconf() = &conf;
 
+    if (logpath) {
+        nsproxy_log_file__ = fopen(logpath, "a");
+        if (nsproxy_log_file__ == NULL) {
+            fprintf(stderr, "nsproxy: open log file failed: %s: %s\n", logpath,
+                    strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+        if (fcntl(fileno(nsproxy_log_file__), F_SETFD, FD_CLOEXEC) == -1) {
+            fprintf(stderr, "nsproxy: set log file close-on-exec failed: %s\n",
+                    strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+        setvbuf(nsproxy_log_file__, NULL, _IOLBF, 0);
+    }
+
     /* command line config initialized, print it */
     if (nsproxy_verbose_level__ >= 0) {
         char dispserv[SERVNAME_MAXLEN + 128] = { 0 };
@@ -1232,6 +1261,10 @@ int main(int argc, char *argv[])
         }
         if (conf.direct_domain_count)
             loglv0("Direct Domains:   %zu", conf.direct_domain_count);
+        if (logpath)
+            loglv0("Log File:         %s", logpath);
+        loglv0("Proxy half-close: %s",
+               conf.no_proxy_half_close ? "disabled" : "enabled");
         loglv0("Verbose:          %s",
                nsproxy_verbose_level__ > 0 ? "yes" : "no");
     }
@@ -1253,6 +1286,8 @@ int main(int argc, char *argv[])
         close(skpair[1]);
         rc = parent(skpair[0]);
         nspconf_free_rules(&conf);
+        if (nsproxy_log_file__)
+            fclose(nsproxy_log_file__);
         return rc;
     } else {
         int rc;
@@ -1260,6 +1295,8 @@ int main(int argc, char *argv[])
         close(skpair[0]);
         rc = child(skpair[1], argv + optind);
         nspconf_free_rules(&conf);
+        if (nsproxy_log_file__)
+            fclose(nsproxy_log_file__);
         return rc;
     }
 }

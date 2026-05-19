@@ -40,10 +40,13 @@
 
 #define membersizeof(type, member) (sizeof(((type *)0)->member))
 
-#define loglv(lv, str, ...)                                        \
-    do {                                                           \
-        if (nsproxy_verbose_level__ >= lv)                         \
-            fprintf(stderr, "[nsproxy] " str "\n", ##__VA_ARGS__); \
+#define loglv(lv, str, ...)                                                     \
+    do {                                                                        \
+        if (nsproxy_verbose_level__ >= lv) {                                     \
+            FILE *logfp__ = nsproxy_log_file__ ? nsproxy_log_file__ : stderr;    \
+            fprintf(logfp__, "[nsproxy] " str "\n", ##__VA_ARGS__);             \
+            fflush(logfp__);                                                    \
+        }                                                                       \
     } while (0)
 
 /* log to user */
@@ -119,6 +122,7 @@ struct nspconf {
     char proxyuser[AUTH_MAXLEN + 1];
     char proxypass[AUTH_MAXLEN + 1];
     uint8_t ipv6;
+    uint8_t no_proxy_half_close;
     size_t direct_cidr_count;
     size_t direct_cidr_capacity;
     struct cidr_block *direct_cidrs;
@@ -129,6 +133,7 @@ struct nspconf {
 };
 
 extern int nsproxy_verbose_level__;
+extern FILE *nsproxy_log_file__;
 extern struct nspconf *nsproxy_current_nspconf__;
 
 void nspconf_add_direct_cidr_raw(struct nspconf *conf, uint8_t family,

@@ -55,11 +55,14 @@ Load domain rules from a file, one domain rule per line. Leading/trailing whites
 .B \-6
 Enable IPv6 support. Default is disabled.
 .TP
+.B \-N
+Do not half-close the proxy socket when the application sends EOF. This is useful for proxy transports that cannot represent TCP half-close, such as WebSocket tunnels.
+.TP
 .B \-v
 Verbose mode. Use "\-vv" or "\-vvv" for more verbose.
 .TP
-.B \-q
-Be quiet. Suppress output.
+.BI \-q " [file]"
+Without file, be quiet. With file, write nsproxy logs to file instead of stderr.
 .TP
 .B \-h
 Print a help message and exit.

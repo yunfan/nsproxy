@@ -51,6 +51,7 @@ struct tcp_forward {
     unsigned int gc;
     u8_t proxyeof;
     u8_t lwipeof;
+    u8_t proxysendeof;
 };
 
 struct udp_forward {
@@ -932,9 +933,14 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
 
     /* received EOF from lwip, and all datas has been sent to proxy,
        forward this EOF to proxy now */
-    if (fwd->lwipeof) {
-        loginfo("tcp_proxy_output: rcvq drained, half-closing proxy");
-        proxy_shutdown(proxy, SHUT_WR, 0);
+    if (fwd->lwipeof && !fwd->proxysendeof) {
+        fwd->proxysendeof = 1;
+        if (current_nspconf()->no_proxy_half_close) {
+            loginfo("tcp_proxy_output: rcvq drained, proxy half-close disabled");
+        } else {
+            loginfo("tcp_proxy_output: rcvq drained, half-closing proxy");
+            proxy_shutdown(proxy, SHUT_WR, 0);
+        }
         /* full close */
         if (fwd->proxyeof && !fwd->sndq) {
             loginfo("tcp_proxy_output: full-closing");
