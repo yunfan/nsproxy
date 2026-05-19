@@ -61,8 +61,11 @@ Do not half-close the proxy socket when the application sends EOF. This is usefu
 .B \-v
 Verbose mode. Use "\-vv" or "\-vvv" for more verbose.
 .TP
-.BI \-q " [file]"
-Without file, be quiet. With file, write nsproxy logs to file instead of stderr.
+.B \-q
+Be quiet. Suppress output.
+.TP
+.BI "\-l, \-\-log-file " file
+Write nsproxy logs to file instead of stderr.
 .TP
 .B \-h
 Print a help message and exit.

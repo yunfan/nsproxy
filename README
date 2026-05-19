@@ -111,9 +111,11 @@ Options:
   -v
     Verbose mode. Use "-vv" or "-vvv" for more verbose.
 
-  -q [file]
-    Without file, be quiet. With file, write nsproxy logs to file instead of
-    stderr.
+  -q
+    Be quiet. Suppress output.
+
+  -l, --log-file <file>
+    Write nsproxy logs to file instead of stderr.
 
 
 LIMITATIONS

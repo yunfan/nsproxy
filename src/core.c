@@ -238,6 +238,78 @@ static int dns_skip_name(const uint8_t *msg, size_t msglen, size_t *offset)
     return dns_read_name(msg, msglen, offset, name, sizeof(name));
 }
 
+static const char *dns_qtype_name(uint16_t qtype)
+{
+    switch (qtype) {
+    case 1:
+        return "A";
+    case 28:
+        return "AAAA";
+    case 5:
+        return "CNAME";
+    case 15:
+        return "MX";
+    case 16:
+        return "TXT";
+    case 33:
+        return "SRV";
+    case 65:
+        return "HTTPS";
+    default:
+        return NULL;
+    }
+}
+
+static void dns_log_query(const char *domain, uint16_t qtype, int matched)
+{
+    const char *typestr = dns_qtype_name(qtype);
+    const char *mode = current_nspconf()->direct_cidr_mode == DIRECT_CIDR_BLACKLIST
+                           ? "blacklist"
+                           : "whitelist";
+    const char *route = matched == (current_nspconf()->direct_cidr_mode
+                                    == DIRECT_CIDR_BLACKLIST)
+                            ? "proxy"
+                            : "direct";
+
+    if (typestr) {
+        loglv1("DNS query: %s %s, domain-rule=%s, mode=%s, route=%s", domain,
+               typestr, matched ? "matched" : "unmatched", mode, route);
+    } else {
+        loglv1("DNS query: %s TYPE%u, domain-rule=%s, mode=%s, route=%s",
+               domain, (unsigned)qtype, matched ? "matched" : "unmatched",
+               mode, route);
+    }
+}
+
+void nsproxy_log_dns_queries(const char *data, size_t size)
+{
+    const uint8_t *msg = (const uint8_t *)data;
+    uint16_t qdcount;
+    size_t offset = 12;
+
+    if (size < 12)
+        return;
+
+    qdcount = dns_get_u16(msg + 4);
+
+    for (uint16_t i = 0; i < qdcount; i++) {
+        char qname[SERVNAME_MAXLEN + 1];
+        uint16_t qtype;
+        int qmatched;
+
+        if (dns_read_name(msg, size, &offset, qname, sizeof(qname)) < 0)
+            return;
+        if (offset + 4 > size)
+            return;
+
+        qtype = dns_get_u16(msg + offset);
+        qmatched = nspconf_domain_matches(current_nspconf(), qname);
+        dns_log_query(qname, qtype, qmatched);
+
+        offset += 4; /* qtype + qclass */
+    }
+}
+
 static void dns_response_add_direct_cidrs(const char *data, size_t size)
 {
     struct nspconf *conf = current_nspconf();
@@ -258,13 +330,20 @@ static void dns_response_add_direct_cidrs(const char *data, size_t size)
 
     for (uint16_t i = 0; i < qdcount; i++) {
         char qname[SERVNAME_MAXLEN + 1];
+        uint16_t qtype;
+        int qmatched;
 
         if (dns_read_name(msg, size, &offset, qname, sizeof(qname)) < 0)
             return;
         if (offset + 4 > size)
             return;
 
-        if (nspconf_domain_matches(conf, qname))
+        qtype = dns_get_u16(msg + offset);
+        qmatched = nspconf_domain_matches(conf, qname);
+        if (conf->dnstype != DNS_REDIR_TCP)
+            dns_log_query(qname, qtype, qmatched);
+
+        if (qmatched)
             matched = 1;
 
         offset += 4; /* qtype + qclass */
@@ -934,12 +1013,24 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
     /* received EOF from lwip, and all datas has been sent to proxy,
        forward this EOF to proxy now */
     if (fwd->lwipeof && !fwd->proxysendeof) {
-        fwd->proxysendeof = 1;
         if (current_nspconf()->no_proxy_half_close) {
             loginfo("tcp_proxy_output: rcvq drained, proxy half-close disabled");
+            fwd->proxysendeof = 1;
         } else {
+            int ret;
+
             loginfo("tcp_proxy_output: rcvq drained, half-closing proxy");
-            proxy_shutdown(proxy, SHUT_WR, 0);
+            ret = proxy_shutdown(proxy, SHUT_WR, 0);
+            if (ret == -EAGAIN) {
+                proxy_evctl(proxy, EPOLLOUT, EVSET);
+                return ERR_OK;
+            } else if (ret < 0) {
+                logwarn("tcp_proxy_output: proxy shutdown failed, force destroy "
+                        "fwd, reason: %s", strerror(-ret));
+                tcp_forward_destroy(fwd, 1);
+                return ERR_ABRT;
+            }
+            fwd->proxysendeof = 1;
         }
         /* full close */
         if (fwd->proxyeof && !fwd->sndq) {

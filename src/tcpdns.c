@@ -205,6 +205,7 @@ static ssize_t tcpdns_send(struct proxy *proxy, const char *data, size_t size)
     worker->nbuffer = size + 2;
 
     loglv2("--- tcpdns %zu bytes query", size);
+    nsproxy_log_dns_queries(data, size);
 
     if (conf->proxytype == PROXY_SOCKS5)
         worker->proxy =

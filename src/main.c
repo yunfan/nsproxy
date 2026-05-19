@@ -83,8 +83,10 @@ static void print_help(void)
            "    Useful for proxy transports without TCP half-close semantics.\n"
            "  -v\n"
            "    Verbose mode. Use \"-vv\" or \"-vvv\" for more verbose.\n"
-           "  -q [file]\n"
-           "    Without file, be quiet. With file, write nsproxy logs to file.\n"
+           "  -q\n"
+           "    Be quiet. Suppress output.\n"
+           "  -l, --log-file <file>\n"
+           "    Write nsproxy logs to file instead of stderr.\n"
            "  -h\n"
            "    Print this help message and exit.\n");
 }
@@ -998,14 +1000,21 @@ int main(int argc, char *argv[])
     const char *dns = NULL;
     const char *logpath = NULL;
     char *auth = NULL;
-    int ishttp = 0, isdirect = 0;
+    int ishttp = 0, isdirect = 0, quiet = 0;
+    const struct option long_options[] = {
+        { "help", no_argument, NULL, 'h' },
+        { "log-file", required_argument, NULL, 'l' },
+        { 0, 0, 0, 0 },
+    };
 
     if (argc == 2 && strcmp(argv[1], "--help") == 0) {
         print_help();
         exit(EXIT_SUCCESS);
     }
 
-    while ((opt = getopt(argc, argv, "+hHDNs:p:d:a:L:F:M:G:q::v6")) != -1) {
+    while ((opt = getopt_long(argc, argv, "+hHDNs:p:d:a:L:F:M:G:l:qv6",
+                              long_options, NULL))
+           != -1) {
         switch (opt) {
         case 'h':
             print_help();
@@ -1054,17 +1063,14 @@ int main(int argc, char *argv[])
         case 'G':
             load_direct_domains_file(&conf, optarg);
             break;
+        case 'l':
+            logpath = optarg;
+            break;
         case 'v':
             nsproxy_verbose_level__++;
             break;
         case 'q':
-            if (optarg) {
-                logpath = optarg;
-            } else if (optind < argc && argv[optind][0] != '-') {
-                logpath = argv[optind++];
-            } else {
-                nsproxy_verbose_level__ = -255;
-            }
+            quiet = 1;
             break;
         default:
             exit(EXIT_FAILURE);
@@ -1225,6 +1231,8 @@ int main(int argc, char *argv[])
             exit(EXIT_FAILURE);
         }
         setvbuf(nsproxy_log_file__, NULL, _IOLBF, 0);
+    } else if (quiet) {
+        nsproxy_verbose_level__ = -255;
     }
 
     /* command line config initialized, print it */
@@ -1263,8 +1271,8 @@ int main(int argc, char *argv[])
             loglv0("Direct Domains:   %zu", conf.direct_domain_count);
         if (logpath)
             loglv0("Log File:         %s", logpath);
-        loglv0("Proxy half-close: %s",
-               conf.no_proxy_half_close ? "disabled" : "enabled");
+        loglv0("Proxy half-close forwarding: %s",
+               conf.no_proxy_half_close ? "disabled (-N)" : "enabled");
         loglv0("Verbose:          %s",
                nsproxy_verbose_level__ > 0 ? "yes" : "no");
     }

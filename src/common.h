@@ -140,3 +140,4 @@ void nspconf_add_direct_cidr_raw(struct nspconf *conf, uint8_t family,
                                  uint8_t prefixlen, const uint8_t addr[16]);
 void nspconf_add_direct_domain(struct nspconf *conf, const char *domain);
 int nspconf_domain_matches(const struct nspconf *conf, const char *domain);
+void nsproxy_log_dns_queries(const char *data, size_t size);
