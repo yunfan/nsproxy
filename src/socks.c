@@ -73,6 +73,20 @@ enum {
     UDP_ASSOCIATE,
 };
 
+static const char *cmdstr(int type)
+{
+    switch (type) {
+    case TCP_FORWARD:
+        return "CONNECT";
+    case UDP_ASSOCIATE:
+        return "UDP ASSOCIATE";
+    case UDP_FORWARD:
+        return "UDP FORWARD";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 struct reladdr {
     char addr[SERVNAME_MAXLEN + 1];
     uint16_t port;
@@ -526,10 +540,12 @@ static void socks_handshake_input(struct proxy_socks *self)
 
         if (hdr.rsp != 0) {
             if (hdr.rsp == 2) {
-                loglv0("Proxy server rejected our request: %s. Please check "
-                       "your username and password.", rspstr[2]);
+                loglv0("Proxy server rejected our %s request: %s. Please "
+                       "check your username and password.", cmdstr(self->type),
+                       rspstr[2]);
             } else {
-                loglv0("Proxy server rejected our request: %s",
+                loglv0("Proxy server rejected our %s request: %s",
+                       cmdstr(self->type),
                        hdr.rsp > 9 ? rspstr[9] : rspstr[hdr.rsp]);
             }
             goto failed_handshake;
