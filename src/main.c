@@ -63,6 +63,18 @@ static void print_help(void)
            "        Redirect DNS requests to specified UDP nameserver.\n"
            "  -a <user:pass>\n"
            "    Proxy authentication (SOCKS5 or HTTP Basic Auth).\n"
+           "  -L <cidr>[,<cidr>...]\n"
+           "    Connect matching destination CIDR blocks directly.\n"
+           "    May be specified multiple times.\n"
+           "  -F <file>\n"
+           "    Load direct CIDR blocks from file, one CIDR per line.\n"
+           "    Leading/trailing whitespace is ignored; # starts a comment.\n"
+           "  -M <whitelist|blacklist>\n"
+           "    CIDR rule mode. whitelist: matched CIDRs go direct (default).\n"
+           "    blacklist: unmatched CIDRs go direct.\n"
+           "  -G <file>\n"
+           "    Load domain rules. Matching DNS A/AAAA answers are added as\n"
+           "    dynamic CIDR rules. Lines support # comments and whitespace trim.\n"
            "  -6\n"
            "    Enable IPv6 support.\n"
            "  -v\n"
@@ -71,6 +83,328 @@ static void print_help(void)
            "    Be quiet. Suppress output.\n"
            "  -h\n"
            "    Print this help message and exit.\n");
+}
+
+static char *trim_ascii_space(char *str)
+{
+    char *end;
+
+    while (*str == ' ' || *str == '\t' || *str == '\r' || *str == '\n'
+           || *str == '\v' || *str == '\f') {
+        str++;
+    }
+
+    end = str + strlen(str);
+    while (end > str
+           && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r'
+               || end[-1] == '\n' || end[-1] == '\v' || end[-1] == '\f')) {
+        end--;
+    }
+    *end = '\0';
+
+    return str;
+}
+
+static size_t next_capacity(size_t current)
+{
+    size_t prev = 0;
+    size_t next = 16;
+
+    if (current == 0)
+        return next;
+
+    while (next <= current) {
+        size_t newnext = prev + next;
+        if (newnext <= next)
+            return current + 1;
+
+        prev = next;
+        next = newnext;
+    }
+
+    return next;
+}
+
+void nspconf_add_direct_cidr_raw(struct nspconf *conf, uint8_t family,
+                                 uint8_t prefixlen, const uint8_t addr[16])
+{
+    struct cidr_block *cidr;
+
+    for (size_t i = 0; i < conf->direct_cidr_count; i++) {
+        cidr = &conf->direct_cidrs[i];
+        if (cidr->family == family && cidr->prefixlen == prefixlen
+            && memcmp(cidr->addr, addr, sizeof(cidr->addr)) == 0) {
+            return;
+        }
+    }
+
+    if (conf->direct_cidr_count == conf->direct_cidr_capacity) {
+        size_t capacity = next_capacity(conf->direct_cidr_capacity);
+        struct cidr_block *cidrs = realloc(conf->direct_cidrs,
+                                           capacity * sizeof(*cidrs));
+        if (cidrs == NULL)
+            oom();
+
+        conf->direct_cidr_capacity = capacity;
+        conf->direct_cidrs = cidrs;
+    }
+
+    cidr = &conf->direct_cidrs[conf->direct_cidr_count];
+    memset(cidr, 0, sizeof(*cidr));
+    cidr->family = family;
+    cidr->prefixlen = prefixlen;
+    memcpy(cidr->addr, addr, sizeof(cidr->addr));
+    conf->direct_cidr_count++;
+}
+
+static void add_direct_cidr(struct nspconf *conf, char *item)
+{
+    char *slash;
+    char *endptr;
+    long parsed_prefix;
+    int family, maxprefix, prefixlen;
+    uint8_t addr[16] = { 0 };
+
+    slash = strchr(item, '/');
+    if (slash == NULL || slash == item || slash[1] == '\0') {
+        fprintf(stderr, "nsproxy: invalid CIDR block: %s\n", item);
+        exit(EXIT_FAILURE);
+    }
+
+    *slash = '\0';
+    if (strchr(slash + 1, '/') != NULL) {
+        fprintf(stderr, "nsproxy: invalid CIDR block: %s/%s\n", item,
+                slash + 1);
+        exit(EXIT_FAILURE);
+    }
+
+    family = strchr(item, ':') ? AF_INET6 : AF_INET;
+    maxprefix = family == AF_INET ? 32 : 128;
+    parsed_prefix = strtol(slash + 1, &endptr, 10);
+    if (*endptr != '\0') {
+        fprintf(stderr, "nsproxy: invalid CIDR prefix length: %s/%s\n",
+                item, slash + 1);
+        exit(EXIT_FAILURE);
+    }
+    prefixlen = parsed_prefix;
+    if (prefixlen < 0 || prefixlen > maxprefix) {
+        fprintf(stderr, "nsproxy: invalid CIDR prefix length: %s/%s\n",
+                item, slash + 1);
+        exit(EXIT_FAILURE);
+    }
+
+    if (inet_pton(family, item, addr) != 1) {
+        fprintf(stderr, "nsproxy: invalid CIDR address: %s/%s\n", item,
+                slash + 1);
+        exit(EXIT_FAILURE);
+    }
+
+    nspconf_add_direct_cidr_raw(conf, family, prefixlen, addr);
+}
+
+static void parse_direct_cidrs(struct nspconf *conf, const char *arg)
+{
+    char *buf, *item, *saveptr = NULL;
+
+    if ((buf = strdup(arg)) == NULL)
+        oom();
+
+    for (item = strtok_r(buf, ",", &saveptr); item != NULL;
+         item = strtok_r(NULL, ",", &saveptr)) {
+        item = trim_ascii_space(item);
+        if (*item != '\0')
+            add_direct_cidr(conf, item);
+    }
+
+    free(buf);
+}
+
+static void load_direct_cidrs_file(struct nspconf *conf, const char *path)
+{
+    FILE *fp;
+    char line[1024];
+    unsigned int lineno = 0;
+
+    if ((fp = fopen(path, "r")) == NULL) {
+        fprintf(stderr, "nsproxy: open CIDR file failed: %s: %s\n", path,
+                strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        char *comment, *item;
+        lineno++;
+
+        if (strchr(line, '\n') == NULL && !feof(fp)) {
+            fprintf(stderr, "nsproxy: CIDR file line too long: %s:%u\n", path,
+                    lineno);
+            exit(EXIT_FAILURE);
+        }
+
+        comment = strchr(line, '#');
+        if (comment != NULL)
+            *comment = '\0';
+
+        item = trim_ascii_space(line);
+        if (*item != '\0')
+            add_direct_cidr(conf, item);
+    }
+
+    if (ferror(fp)) {
+        fprintf(stderr, "nsproxy: read CIDR file failed: %s: %s\n", path,
+                strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    fclose(fp);
+}
+
+static void normalize_domain(char *domain)
+{
+    size_t len;
+    char *p = domain;
+
+    if (*p == '=')
+        p++;
+
+    for (; *p; p++) {
+        if (*p >= 'A' && *p <= 'Z')
+            *p = *p - 'A' + 'a';
+    }
+
+    len = strlen(domain);
+    while (len > 0 && domain[len - 1] == '.') {
+        domain[--len] = '\0';
+    }
+}
+
+void nspconf_add_direct_domain(struct nspconf *conf, const char *domain)
+{
+    char *copy, *trimmed;
+
+    if ((copy = strdup(domain)) == NULL)
+        oom();
+
+    trimmed = trim_ascii_space(copy);
+    normalize_domain(trimmed);
+    if (*trimmed == '\0' || strcmp(trimmed, "=") == 0) {
+        free(copy);
+        return;
+    }
+
+    for (size_t i = 0; i < conf->direct_domain_count; i++) {
+        if (strcmp(conf->direct_domains[i], trimmed) == 0) {
+            free(copy);
+            return;
+        }
+    }
+
+    if (conf->direct_domain_count == conf->direct_domain_capacity) {
+        size_t capacity = next_capacity(conf->direct_domain_capacity);
+        char **domains = realloc(conf->direct_domains,
+                                 capacity * sizeof(*domains));
+        if (domains == NULL)
+            oom();
+
+        conf->direct_domain_capacity = capacity;
+        conf->direct_domains = domains;
+    }
+
+    if (trimmed != copy)
+        memmove(copy, trimmed, strlen(trimmed) + 1);
+    conf->direct_domains[conf->direct_domain_count++] = copy;
+}
+
+int nspconf_domain_matches(const struct nspconf *conf, const char *domain)
+{
+    char normalized[SERVNAME_MAXLEN + 1];
+    size_t domain_len;
+
+    snprintf(normalized, sizeof(normalized), "%s", domain);
+    normalize_domain(normalized);
+    domain_len = strlen(normalized);
+
+    for (size_t i = 0; i < conf->direct_domain_count; i++) {
+        const char *rule = conf->direct_domains[i];
+
+        if (rule[0] == '=') {
+            if (strcmp(normalized, rule + 1) == 0)
+                return 1;
+        } else if (rule[0] == '*' && rule[1] == '.') {
+            const char *suffix = rule + 2;
+            size_t suffix_len = strlen(suffix);
+            const char *domain_suffix;
+
+            if (domain_len <= suffix_len)
+                continue;
+
+            domain_suffix = normalized + domain_len - suffix_len;
+            if (strcmp(domain_suffix, suffix) == 0 && domain_suffix[-1] == '.')
+                return 1;
+        } else {
+            size_t rule_len = strlen(rule);
+            const char *suffix;
+
+            if (strcmp(normalized, rule) == 0)
+                return 1;
+            if (domain_len <= rule_len)
+                continue;
+
+            suffix = normalized + domain_len - rule_len;
+            if (strcmp(suffix, rule) == 0 && suffix[-1] == '.')
+                return 1;
+        }
+    }
+
+    return 0;
+}
+
+static void load_direct_domains_file(struct nspconf *conf, const char *path)
+{
+    FILE *fp;
+    char line[1024];
+    unsigned int lineno = 0;
+
+    if ((fp = fopen(path, "r")) == NULL) {
+        fprintf(stderr, "nsproxy: open domain file failed: %s: %s\n", path,
+                strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        char *comment, *item;
+        lineno++;
+
+        if (strchr(line, '\n') == NULL && !feof(fp)) {
+            fprintf(stderr, "nsproxy: domain file line too long: %s:%u\n",
+                    path, lineno);
+            exit(EXIT_FAILURE);
+        }
+
+        comment = strchr(line, '#');
+        if (comment != NULL)
+            *comment = '\0';
+
+        item = trim_ascii_space(line);
+        if (*item != '\0')
+            nspconf_add_direct_domain(conf, item);
+    }
+
+    if (ferror(fp)) {
+        fprintf(stderr, "nsproxy: read domain file failed: %s: %s\n", path,
+                strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    fclose(fp);
+}
+
+static void nspconf_free_rules(struct nspconf *conf)
+{
+    free(conf->direct_cidrs);
+    while (conf->direct_domain_count > 0)
+        free(conf->direct_domains[--conf->direct_domain_count]);
+    free(conf->direct_domains);
 }
 
 static ssize_t write_all(int fd, const void *data, size_t size)
@@ -666,7 +1000,7 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
     }
 
-    while ((opt = getopt(argc, argv, "+hHDs:p:d:a:qv6")) != -1) {
+    while ((opt = getopt(argc, argv, "+hHDs:p:d:a:L:F:M:G:qv6")) != -1) {
         switch (opt) {
         case 'h':
             print_help();
@@ -691,6 +1025,26 @@ int main(int argc, char *argv[])
             break;
         case 'a':
             auth = optarg;
+            break;
+        case 'L':
+            parse_direct_cidrs(&conf, optarg);
+            break;
+        case 'F':
+            load_direct_cidrs_file(&conf, optarg);
+            break;
+        case 'M':
+            if (strcmp(optarg, "whitelist") == 0) {
+                conf.direct_cidr_mode = DIRECT_CIDR_WHITELIST;
+            } else if (strcmp(optarg, "blacklist") == 0) {
+                conf.direct_cidr_mode = DIRECT_CIDR_BLACKLIST;
+            } else {
+                fprintf(stderr, "nsproxy: unsupported CIDR rule mode: %s\n",
+                        optarg);
+                exit(EXIT_FAILURE);
+            }
+            break;
+        case 'G':
+            load_direct_domains_file(&conf, optarg);
             break;
         case 'v':
             nsproxy_verbose_level__++;
@@ -869,6 +1223,15 @@ int main(int argc, char *argv[])
 
         loglv0("Proxy Server:     %s", dispserv);
         loglv0("DNS Redirection:  %s", dispdns);
+        if (conf.direct_cidr_count
+            || conf.direct_cidr_mode == DIRECT_CIDR_BLACKLIST) {
+            loglv0("Direct CIDRs:     %zu (%s)", conf.direct_cidr_count,
+                   conf.direct_cidr_mode == DIRECT_CIDR_BLACKLIST
+                       ? "blacklist"
+                       : "whitelist");
+        }
+        if (conf.direct_domain_count)
+            loglv0("Direct Domains:   %zu", conf.direct_domain_count);
         loglv0("Verbose:          %s",
                nsproxy_verbose_level__ > 0 ? "yes" : "no");
     }
@@ -885,12 +1248,18 @@ int main(int argc, char *argv[])
     }
 
     if (cid) {
+        int rc;
         loginfo("parent: forked child process (pid=%d)", cid);
         close(skpair[1]);
-        return parent(skpair[0]);
+        rc = parent(skpair[0]);
+        nspconf_free_rules(&conf);
+        return rc;
     } else {
+        int rc;
         loginfo("child: process started");
         close(skpair[0]);
-        return child(skpair[1], argv + optind);
+        rc = child(skpair[1], argv + optind);
+        nspconf_free_rules(&conf);
+        return rc;
     }
 }

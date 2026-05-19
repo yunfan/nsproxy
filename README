@@ -72,6 +72,33 @@ Options:
   -a <user:pass>
     Proxy authentication (SOCKS5 or HTTP Basic Auth).
 
+  -L <cidr>[,<cidr>...]
+    Connect matching destination CIDR blocks directly instead of using proxy.
+    This option may be specified multiple times.
+    Example: -L 10.0.0.0/8 -L 192.168.0.0/16,fd00::/8
+
+  -F <file>
+    Load direct CIDR blocks from a file, one CIDR per line.
+    Leading/trailing whitespace is ignored, and "#" starts a comment.
+
+  -M <whitelist|blacklist>
+    CIDR rule mode.
+    whitelist: matching CIDRs connect directly, other traffic uses proxy.
+    blacklist: matching CIDRs use proxy, other traffic connects directly.
+    Default is whitelist.
+
+  -G <file>
+    Load domain rules from a file, one domain rule per line.
+    Leading/trailing whitespace is ignored, and "#" starts a comment.
+    DNS A answers matching a domain rule are added as /32 CIDR rules.
+    DNS AAAA answers matching a domain rule are added as /128 CIDR rules.
+    Domain rules follow the CIDR rule mode:
+      whitelist: matching domains connect directly.
+      blacklist: matching domains use proxy.
+    A rule matches the exact domain and its subdomains.
+    Prefix with "=" for exact match only.
+    Prefix with "*." to match subdomains only.
+
   -6
     Enable IPv6 support.
     Default is disabled

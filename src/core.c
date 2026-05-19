@@ -92,6 +92,219 @@ static int is_gateway(const struct netif *netif, const ip_addr_t *addr)
            || ip_addr_cmp(addr, netif_ip_addr6(netif, 0));
 }
 
+static int cidr_match_bytes(const uint8_t *addr, const uint8_t *network,
+                            uint8_t prefixlen)
+{
+    uint8_t fullbytes = prefixlen / 8;
+    uint8_t rembits = prefixlen % 8;
+
+    if (fullbytes > 0 && memcmp(addr, network, fullbytes) != 0)
+        return 0;
+
+    if (rembits > 0) {
+        uint8_t mask = (uint8_t)(0xff << (8 - rembits));
+        if ((addr[fullbytes] & mask) != (network[fullbytes] & mask))
+            return 0;
+    }
+
+    return 1;
+}
+
+static int is_direct_cidr_target(const ip_addr_t *addr)
+{
+    struct nspconf *conf = current_nspconf();
+    uint8_t raw[16];
+    uint8_t family;
+    int matched = 0;
+
+    if (conf->direct_cidr_count == 0
+        && conf->direct_cidr_mode == DIRECT_CIDR_WHITELIST) {
+        return 0;
+    }
+
+    memset(raw, 0, sizeof(raw));
+    if (IP_IS_V4(addr)) {
+        family = AF_INET;
+        memcpy(raw, &ip_2_ip4(addr)->addr, 4);
+    } else {
+        family = AF_INET6;
+        memcpy(raw, ip_2_ip6(addr)->addr, 16);
+    }
+
+    for (size_t i = 0; i < conf->direct_cidr_count; i++) {
+        struct cidr_block *cidr = &conf->direct_cidrs[i];
+
+        if (cidr->family == family
+            && cidr_match_bytes(raw, cidr->addr, cidr->prefixlen)) {
+            matched = 1;
+            break;
+        }
+    }
+
+    if (conf->direct_cidr_mode == DIRECT_CIDR_BLACKLIST)
+        return !matched;
+
+    return matched;
+}
+
+static uint16_t dns_get_u16(const uint8_t *p)
+{
+    return ((uint16_t)p[0] << 8) | p[1];
+}
+
+static uint32_t dns_get_u32(const uint8_t *p)
+{
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16)
+           | ((uint32_t)p[2] << 8) | p[3];
+}
+
+static int dns_read_name(const uint8_t *msg, size_t msglen, size_t *offset,
+                         char *out, size_t outlen)
+{
+    size_t pos = *offset;
+    size_t nout = 0;
+    int jumped = 0;
+
+    for (unsigned int jumps = 0; jumps < 128; jumps++) {
+        uint8_t len;
+
+        if (pos >= msglen)
+            return -1;
+
+        len = msg[pos];
+        if ((len & 0xc0) == 0xc0) {
+            uint16_t ptr;
+
+            if (pos + 1 >= msglen)
+                return -1;
+
+            ptr = ((uint16_t)(len & 0x3f) << 8) | msg[pos + 1];
+            if (ptr >= msglen)
+                return -1;
+
+            if (!jumped) {
+                *offset = pos + 2;
+                jumped = 1;
+            }
+            pos = ptr;
+            continue;
+        }
+
+        if ((len & 0xc0) != 0)
+            return -1;
+
+        pos++;
+        if (len == 0) {
+            if (!jumped)
+                *offset = pos;
+            if (nout == 0) {
+                if (outlen == 0)
+                    return -1;
+                out[nout++] = '.';
+            }
+            if (nout >= outlen)
+                return -1;
+            out[nout] = '\0';
+            return 0;
+        }
+
+        if (len > 63 || pos + len > msglen)
+            return -1;
+
+        if (nout != 0) {
+            if (nout + 1 >= outlen)
+                return -1;
+            out[nout++] = '.';
+        }
+        if (nout + len >= outlen)
+            return -1;
+
+        for (uint8_t i = 0; i < len; i++) {
+            uint8_t ch = msg[pos + i];
+            if (ch >= 'A' && ch <= 'Z')
+                ch = ch - 'A' + 'a';
+            out[nout++] = ch;
+        }
+        pos += len;
+    }
+
+    return -1;
+}
+
+static int dns_skip_name(const uint8_t *msg, size_t msglen, size_t *offset)
+{
+    char name[SERVNAME_MAXLEN + 1];
+    return dns_read_name(msg, msglen, offset, name, sizeof(name));
+}
+
+static void dns_response_add_direct_cidrs(const char *data, size_t size)
+{
+    struct nspconf *conf = current_nspconf();
+    const uint8_t *msg = (const uint8_t *)data;
+    uint16_t flags, qdcount, ancount;
+    size_t offset = 12;
+    int matched = 0;
+
+    if (conf->direct_domain_count == 0 || size < 12)
+        return;
+
+    flags = dns_get_u16(msg + 2);
+    if ((flags & 0x8000) == 0)
+        return;
+
+    qdcount = dns_get_u16(msg + 4);
+    ancount = dns_get_u16(msg + 6);
+
+    for (uint16_t i = 0; i < qdcount; i++) {
+        char qname[SERVNAME_MAXLEN + 1];
+
+        if (dns_read_name(msg, size, &offset, qname, sizeof(qname)) < 0)
+            return;
+        if (offset + 4 > size)
+            return;
+
+        if (nspconf_domain_matches(conf, qname))
+            matched = 1;
+
+        offset += 4; /* qtype + qclass */
+    }
+
+    if (!matched)
+        return;
+
+    for (uint16_t i = 0; i < ancount; i++) {
+        uint16_t type, class, rdlen;
+        const uint8_t *rdata;
+
+        if (dns_skip_name(msg, size, &offset) < 0)
+            return;
+        if (offset + 10 > size)
+            return;
+
+        type = dns_get_u16(msg + offset);
+        class = dns_get_u16(msg + offset + 2);
+        (void)dns_get_u32(msg + offset + 4); /* ttl */
+        rdlen = dns_get_u16(msg + offset + 8);
+        offset += 10;
+
+        if (offset + rdlen > size)
+            return;
+
+        rdata = msg + offset;
+        if (class == 1 && type == 1 && rdlen == 4) {
+            uint8_t addr[16] = { 0 };
+            memcpy(addr, rdata, 4);
+            nspconf_add_direct_cidr_raw(conf, AF_INET, 32, addr);
+        } else if (class == 1 && type == 28 && rdlen == 16) {
+            uint8_t addr[16] = { 0 };
+            memcpy(addr, rdata, 16);
+            nspconf_add_direct_cidr_raw(conf, AF_INET6, 128, addr);
+        }
+
+        offset += rdlen;
+    }
+}
+
 static void tun_input(struct netif *tunif)
 {
     struct corectx *core = tunif->state;
@@ -294,6 +507,9 @@ static err_t udp_proxy_input(struct udp_forward *fwd)
             break;
         }
 
+        if (fwd->pcb->local_port == 53)
+            dns_response_add_direct_cidrs(buffer, nread);
+
         pbuf_realloc(p, nread); /* set p->tot_len = nread */
         err = udp_send(pcb, p);
         if (err != ERR_OK && err != ERR_MEM) {
@@ -458,7 +674,10 @@ err_t core_udp_new(struct udp_pcb *pcb)
     }
 
     ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
-    if (conf->proxytype == PROXY_SOCKS5 && !core->assocready) {
+    if (is_direct_cidr_target(&pcb->local_ip)) {
+        fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd, ip,
+                                       pcb->local_port);
+    } else if (conf->proxytype == PROXY_SOCKS5 && !core->assocready) {
         /* leave a pending fwd */
         fwd->proxy = NULL;
         return ERR_OK;
@@ -513,8 +732,13 @@ static void udp_assoc_io_event(void *userp, unsigned int events)
         }
 
         ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
-        fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd, ip,
-                                      pcb->local_port, core->udpassoc);
+        if (is_direct_cidr_target(&pcb->local_ip)) {
+            fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
+                                           ip, pcb->local_port);
+        } else {
+            fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd,
+                                          ip, pcb->local_port, core->udpassoc);
+        }
         if (fwd->proxy == NULL) {
             struct udp_forward *next = fwd->next; /* save next in linked-list */
             udp_forward_destroy(fwd);
@@ -837,7 +1061,10 @@ err_t core_tcp_new(struct tcp_pcb *pcb)
     }
 
     ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
-    if (conf->proxytype == PROXY_SOCKS5) {
+    if (is_direct_cidr_target(&pcb->local_ip)) {
+        fwd->proxy = direct_tcp_create(core->loop, &tcp_proxy_io_event, fwd, ip,
+                                       pcb->local_port);
+    } else if (conf->proxytype == PROXY_SOCKS5) {
         fwd->proxy = socks_tcp_create(core->loop, &tcp_proxy_io_event, fwd, ip,
                                       pcb->local_port);
     } else if (conf->proxytype == PROXY_HTTP) {

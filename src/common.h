@@ -88,6 +88,11 @@ enum {
     PROXY_DIRECT
 };
 
+enum {
+    DIRECT_CIDR_WHITELIST,
+    DIRECT_CIDR_BLACKLIST
+};
+
 /* rfc1035(domain name): the total length of a domain name is restricted to 255
    octets or less */
 #define SERVNAME_MAXLEN 255
@@ -97,6 +102,12 @@ enum {
 
 /* rfc768(UDP) */
 #define UDP_PACKET_MAXLEN 65535
+
+struct cidr_block {
+    uint8_t family;
+    uint8_t prefixlen;
+    uint8_t addr[16];
+};
 
 struct nspconf {
     char proxysrv[SERVNAME_MAXLEN + 1];
@@ -108,7 +119,19 @@ struct nspconf {
     char proxyuser[AUTH_MAXLEN + 1];
     char proxypass[AUTH_MAXLEN + 1];
     uint8_t ipv6;
+    size_t direct_cidr_count;
+    size_t direct_cidr_capacity;
+    struct cidr_block *direct_cidrs;
+    uint8_t direct_cidr_mode;
+    size_t direct_domain_count;
+    size_t direct_domain_capacity;
+    char **direct_domains;
 };
 
 extern int nsproxy_verbose_level__;
 extern struct nspconf *nsproxy_current_nspconf__;
+
+void nspconf_add_direct_cidr_raw(struct nspconf *conf, uint8_t family,
+                                 uint8_t prefixlen, const uint8_t addr[16]);
+void nspconf_add_direct_domain(struct nspconf *conf, const char *domain);
+int nspconf_domain_matches(const struct nspconf *conf, const char *domain);

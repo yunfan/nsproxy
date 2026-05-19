@@ -39,6 +39,19 @@ Default is "tcp://1.1.1.1". IPv6 addresses must be enclosed in brackets (e.g., \
 .BI \-a " user:pass"
 Proxy authentication (SOCKS5 or HTTP Basic Auth).
 .TP
+.BI \-L " cidr[,cidr...]"
+Connect matching destination CIDR blocks directly instead of using the proxy.
+This option may be specified multiple times.
+.TP
+.BI \-F " file"
+Load direct CIDR blocks from a file, one CIDR per line. Leading/trailing whitespace is ignored, and "#" starts a comment.
+.TP
+.BI \-M " whitelist|blacklist"
+CIDR rule mode. In whitelist mode, matching CIDRs connect directly and other traffic uses the proxy. In blacklist mode, matching CIDRs use the proxy and other traffic connects directly. Default is whitelist.
+.TP
+.BI \-G " file"
+Load domain rules from a file, one domain rule per line. Leading/trailing whitespace is ignored, and "#" starts a comment. Matching DNS A answers are added as /32 CIDR rules, and matching DNS AAAA answers are added as /128 CIDR rules. In whitelist mode, matching domains connect directly; in blacklist mode, matching domains use the proxy. A rule matches the exact domain and its subdomains. Prefix with "=" for exact match only. Prefix with "*." to match subdomains only.
+.TP
 .B \-6
 Enable IPv6 support. Default is disabled.
 .TP
@@ -62,6 +75,22 @@ Use HTTP proxy:
 Specify a custom proxy server and port:
 .IP
 \fBnsproxy \-s 192.168.1.100 \-p 8888 curl http://example.com\fR
+.PP
+Proxy most traffic, but connect private network destinations directly:
+.IP
+\fBnsproxy \-L 10.0.0.0/8 \-L 192.168.0.0/16 curl http://example.com\fR
+.PP
+Load direct CIDR blocks from a file:
+.IP
+\fBnsproxy \-F ./direct-cidrs.txt curl http://example.com\fR
+.PP
+Use CIDR rules as a blacklist, proxying only matching ranges:
+.IP
+\fBnsproxy \-M blacklist \-F ./proxy-cidrs.txt curl http://example.com\fR
+.PP
+Load domain rules and dynamically add DNS results to CIDR rules:
+.IP
+\fBnsproxy \-M whitelist \-G ./direct-domains.txt curl http://example.com\fR
 .SH LIMITATIONS
 .IP \(bu 2
 All UIDs and GIDs except the current user's are mapped to the overflow UID/GID. This means programs like \fBsudo\fR or \fBsu\fR will not work.
