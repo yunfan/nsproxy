@@ -193,6 +193,7 @@ static void http_handshake_input(struct proxy_http *self)
     }
 
     self->phase = PHASE_FORWARDING;
+    skutils_access_log(&self->info, "connected", NULL);
     loglv2("... handshaked %s:%u/tcp", self->addr, (unsigned)self->port);
 
     /* good, handshake finish, listen and forward epoll event for user */
@@ -204,6 +205,7 @@ static void http_handshake_input(struct proxy_http *self)
     return;
 
 failed_handshake:
+    skutils_access_log(&self->info, "failed", "http-handshake-failed");
     self->phase = PHASE_FAILED;
     self->userev(self->userp, EPOLLIN | EPOLLOUT | EPOLLERR);
 }
@@ -409,6 +411,7 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
     self->info.proto = "tcp";
     self->info.addr = self->addr;
     self->info.port = self->port;
+    self->info.route = "http";
 
     /* perform connect */
     self->sfd = skutils_connect(&self->info, conf->proxysrv, conf->proxyport,

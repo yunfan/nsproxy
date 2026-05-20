@@ -561,6 +561,7 @@ static void socks_handshake_input(struct proxy_socks *self)
         }
 
         self->phase = PHASE_FORWARDING;
+        skutils_access_log(&self->info, "connected", NULL);
         loglv2("... handshaked %s:%u", self->addr, (unsigned)self->port);
     }
 
@@ -582,6 +583,7 @@ static void socks_handshake_input(struct proxy_socks *self)
     return;
 
 failed_handshake:
+    skutils_access_log(&self->info, "failed", "socks5-handshake-failed");
     self->phase = PHASE_FAILED;
     self->userev(self->userp, EPOLLIN | EPOLLOUT | EPOLLERR);
 }
@@ -787,6 +789,7 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
     self->info.proto = self->type == TCP_FORWARD ? "tcp" : "udp";
     self->info.addr = self->addr;
     self->info.port = self->port;
+    self->info.route = "socks5";
 
     if (type == UDP_FORWARD) {
         /* create socket and bind to relay server */

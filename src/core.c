@@ -726,6 +726,7 @@ err_t core_udp_new(struct udp_pcb *pcb)
     struct nspconf *conf = current_nspconf();
     struct udp_forward *fwd;
     char ip[IPADDR_STRLEN_MAX + 1];
+    const char *route = "unknown";
 
     fwd = udp_forward_create(core);
     fwd->pcb = pcb;
@@ -755,6 +756,7 @@ err_t core_udp_new(struct udp_pcb *pcb)
 
     ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
     if (is_direct_cidr_target(&pcb->local_ip)) {
+        route = "direct";
         fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd, ip,
                                        pcb->local_port);
     } else if (conf->proxytype == PROXY_SOCKS5 && !core->assocready) {
@@ -762,15 +764,23 @@ err_t core_udp_new(struct udp_pcb *pcb)
         fwd->proxy = NULL;
         return ERR_OK;
     } else if (conf->proxytype == PROXY_SOCKS5) {
+        route = "socks5";
         fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd, ip,
                                       pcb->local_port, core->udpassoc);
     } else if (conf->proxytype == PROXY_DIRECT) {
+        route = "direct";
         fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd, ip,
                                        pcb->local_port);
+    } else if (conf->proxytype == PROXY_HTTP) {
+        route = "http";
     }
 
 end:
     if (fwd->proxy == NULL) {
+        ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
+        loglv1("Access: target=%s:%u proto=udp route=%s result=failed "
+               "reason=route-unavailable", ip, (unsigned)pcb->local_port,
+               route);
         udp_forward_destroy(fwd);
         return ERR_ABRT;
     } else {
@@ -812,15 +822,21 @@ static void udp_assoc_io_event(void *userp, unsigned int events)
         }
 
         ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
+        const char *route;
         if (is_direct_cidr_target(&pcb->local_ip)) {
+            route = "direct";
             fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
                                            ip, pcb->local_port);
         } else {
+            route = "socks5";
             fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd,
                                           ip, pcb->local_port, core->udpassoc);
         }
         if (fwd->proxy == NULL) {
             struct udp_forward *next = fwd->next; /* save next in linked-list */
+            loglv1("Access: target=%s:%u proto=udp route=%s result=failed "
+                   "reason=route-unavailable", ip, (unsigned)pcb->local_port,
+                   route);
             udp_forward_destroy(fwd);
             fwd = next;
             continue;

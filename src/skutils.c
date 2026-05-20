@@ -24,6 +24,21 @@
 #include <sys/socket.h>
 #include "proxy.h"
 
+void skutils_access_log(struct skinfo *info, const char *result,
+                        const char *reason)
+{
+    const char *route = info->route ? info->route : "unknown";
+
+    if (reason && *reason) {
+        loglv1("Access: target=%s:%u proto=%s route=%s result=%s reason=%s",
+               info->addr, (unsigned)info->port, info->proto, route, result,
+               reason);
+    } else {
+        loglv1("Access: target=%s:%u proto=%s route=%s result=%s", info->addr,
+               (unsigned)info->port, info->proto, route, result);
+    }
+}
+
 int skutils_connect(struct skinfo *info, const char *addr, uint16_t port,
                     int type)
 {
@@ -32,18 +47,23 @@ int skutils_connect(struct skinfo *info, const char *addr, uint16_t port,
     char portstr[8];
     int sfd;
 
-    if (strlen(addr) >= SERVNAME_MAXLEN)
+    if (strlen(addr) >= SERVNAME_MAXLEN) {
+        skutils_access_log(info, "failed", "address-too-long");
         return -EINVAL;
+    }
 
     snprintf(portstr, sizeof(portstr), "%u", (unsigned int)port);
 
     /* resolve string addr to sockaddr, works well with both IPv4 / IPv6 */
-    if (getaddrinfo(addr, portstr, &hints, &ai) != 0)
+    if (getaddrinfo(addr, portstr, &hints, &ai) != 0) {
+        skutils_access_log(info, "failed", "resolve-failed");
         return -EADDRNOTAVAIL;
+    }
 
     sfd = socket(ai->ai_family, type | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (sfd == -1) {
         int ret = -errno;
+        skutils_access_log(info, "failed", strerror(errno));
         freeaddrinfo(ai);
         return ret;
     }
@@ -55,14 +75,15 @@ int skutils_connect(struct skinfo *info, const char *addr, uint16_t port,
     if (connect(sfd, ai->ai_addr, ai->ai_addrlen) == -1) {
         if (errno != EINPROGRESS) {
             int ret = -errno;
+            skutils_access_log(info, "failed", strerror(errno));
             freeaddrinfo(ai);
             close(sfd);
             return ret;
         }
     }
 
-    loglv1("%s %s:%u/%s", type == SOCK_STREAM ? "Connecting" : "Forwarding",
-           info->addr, (unsigned)info->port, info->proto);
+    skutils_access_log(info, type == SOCK_STREAM ? "connecting" : "forwarding",
+                       NULL);
     freeaddrinfo(ai);
     return sfd;
 }
@@ -151,8 +172,7 @@ int skutils_shutdown(struct skinfo *info, struct loopctx *loop, int *sfd,
             return -errno;
     }
 
-    loglv2("... shutdown %s:%u/%s", info->addr, (unsigned)info->port,
-           info->proto);
+    skutils_access_log(info, "shutdown", NULL);
     return 0;
 }
 
@@ -173,6 +193,7 @@ void skutils_close_unreg(struct skinfo *info, struct loopctx *loop, int *sfd)
 
     *sfd = -1;
 
-    loglv1("Closed %s:%u/%s (sent %zu, received %zu bytes)", info->addr,
-           (unsigned)info->port, info->proto, info->nsent, info->nread);
+    loglv1("Access: target=%s:%u proto=%s route=%s result=closed sent=%zu "
+           "received=%zu", info->addr, (unsigned)info->port, info->proto,
+           info->route ? info->route : "unknown", info->nsent, info->nread);
 }

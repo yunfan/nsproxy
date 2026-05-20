@@ -109,7 +109,8 @@ Options:
     such as WebSocket tunnels.
 
   -v
-    Verbose mode. Use "-vv" or "-vvv" for more verbose.
+    Verbose mode. Prints access logs, including target IP, protocol, route,
+    result, and byte counts on close. Use "-vv" or "-vvv" for more verbose.
 
   -q
     Be quiet. Suppress output.

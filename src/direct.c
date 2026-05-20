@@ -149,6 +149,7 @@ direct_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
     self->info.proto = type == SOCK_STREAM ? "tcp" : "udp";
     self->info.addr = self->addr;
     self->info.port = self->port;
+    self->info.route = "direct";
 
     /* connect to target address directly */
     self->sfd = skutils_connect(&self->info, addr, port, type);

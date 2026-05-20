@@ -44,7 +44,11 @@ struct skinfo {
     const char *proto;
     const char *addr;
     uint16_t port;
+    const char *route;
 };
+
+void skutils_access_log(struct skinfo *info, const char *result,
+                        const char *reason);
 
 /* Create socket fd and connect to addr:port, with log prints
    return socked fd if succeed, otherwise -errno */
