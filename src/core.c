@@ -150,6 +150,16 @@ static int is_direct_cidr_target(const ip_addr_t *addr)
     return matched;
 }
 
+static int core_has_pending_udp_assoc(struct corectx *core)
+{
+    for (struct udp_forward *fwd = core->udplst; fwd; fwd = fwd->next) {
+        if (fwd->proxy == NULL)
+            return 1;
+    }
+
+    return 0;
+}
+
 static void core_start_udp_assoc(struct corectx *core)
 {
     if (core->udpassoc || core->assocready
@@ -162,6 +172,10 @@ static void core_start_udp_assoc(struct corectx *core)
 
     core->udpassoc = socks_assoc_create(core->loop, &udp_assoc_io_event, core);
     core->assocretries++;
+    if (core->udpassoc == NULL) {
+        int cdexp = core->assocretries <= 5 ? core->assocretries : 5;
+        core->assoccd = 1 << cdexp;
+    }
 }
 
 static uint16_t dns_get_u16(const uint8_t *p)
@@ -1259,7 +1273,8 @@ static void core_reassoc_tmr(struct corectx *core)
     if (current_nspconf()->proxytype != PROXY_SOCKS5)
         return;
 
-    if (core->udpassoc == NULL && !core->assocready && core->udplst != NULL) {
+    if (core->udpassoc == NULL && !core->assocready
+        && core_has_pending_udp_assoc(core)) {
         /* re-associate is needed */
         if (core->assoccd > 0) {
             /* exponent backoff countdown */
