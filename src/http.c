@@ -412,6 +412,7 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
     self->info.addr = self->addr;
     self->info.port = self->port;
     self->info.route = "http";
+    self->info.access_log = 1;
 
     /* perform connect */
     self->sfd = skutils_connect(&self->info, conf->proxysrv, conf->proxyport,

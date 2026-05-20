@@ -87,6 +87,8 @@ struct corectx {
     uint8_t assocready;
 };
 
+static void udp_assoc_io_event(void *userp, unsigned int events);
+
 static int is_gateway(const struct netif *netif, const ip_addr_t *addr)
 {
     return ip_addr_cmp(addr, netif_ip_addr4(netif))
@@ -146,6 +148,20 @@ static int is_direct_cidr_target(const ip_addr_t *addr)
         return !matched;
 
     return matched;
+}
+
+static void core_start_udp_assoc(struct corectx *core)
+{
+    if (core->udpassoc || core->assocready
+        || current_nspconf()->proxytype != PROXY_SOCKS5) {
+        return;
+    }
+
+    if (core->assoccd > 0)
+        return;
+
+    core->udpassoc = socks_assoc_create(core->loop, &udp_assoc_io_event, core);
+    core->assocretries++;
 }
 
 static uint16_t dns_get_u16(const uint8_t *p)
@@ -762,6 +778,7 @@ err_t core_udp_new(struct udp_pcb *pcb)
     } else if (conf->proxytype == PROXY_SOCKS5 && !core->assocready) {
         /* leave a pending fwd */
         fwd->proxy = NULL;
+        core_start_udp_assoc(core);
         return ERR_OK;
     } else if (conf->proxytype == PROXY_SOCKS5) {
         route = "socks5";
@@ -802,6 +819,24 @@ static void udp_assoc_io_event(void *userp, unsigned int events)
         core->udpassoc = NULL;
         core->assocready = 0;
         core->assoccd = 1 << cdexp; /* exponent backoff */
+
+        for (fwd = core->udplst; fwd;) {
+            struct udp_forward *next = fwd->next;
+            struct udp_pcb *pcb = fwd->pcb;
+            char ip[IPADDR_STRLEN_MAX + 1];
+
+            if (fwd->proxy) {
+                fwd = next;
+                continue;
+            }
+
+            ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
+            loglv1("Access: target=%s:%u proto=udp route=socks5 result=failed "
+                   "reason=socks5-udp-associate-failed", ip,
+                   (unsigned)pcb->local_port);
+            udp_forward_destroy(fwd);
+            fwd = next;
+        }
 
         return;
     }
@@ -1221,20 +1256,17 @@ static void core_gc_tmr(struct corectx *core)
 /* call every 1s */
 static void core_reassoc_tmr(struct corectx *core)
 {
-    struct loopctx *loop = core->loop;
-
     if (current_nspconf()->proxytype != PROXY_SOCKS5)
         return;
 
-    if (core->udpassoc == NULL && !core->assocready) {
+    if (core->udpassoc == NULL && !core->assocready && core->udplst != NULL) {
         /* re-associate is needed */
         if (core->assoccd > 0) {
             /* exponent backoff countdown */
             core->assoccd--;
         } else {
             /* re-associate */
-            core->udpassoc = socks_assoc_create(loop, &udp_assoc_io_event, core);
-            core->assocretries++;
+            core_start_udp_assoc(core);
         }
     }
 }
@@ -1320,10 +1352,7 @@ int core_init(struct corectx **core, struct loopctx *loop, int tunfd)
 
     loginfo("core_init: initialized lwIP core forwarding module (corectx)");
 
-    if (current_nspconf()->proxytype == PROXY_SOCKS5) {
-        p->udpassoc = socks_assoc_create(loop, &udp_assoc_io_event, p);
-        p->assocready = 0;
-    } else if (current_nspconf()->proxytype == PROXY_DIRECT) {
+    if (current_nspconf()->proxytype == PROXY_DIRECT) {
         p->udpassoc = NULL;
         p->assocready = 1;
     } else {

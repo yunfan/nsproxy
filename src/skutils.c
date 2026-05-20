@@ -29,6 +29,9 @@ void skutils_access_log(struct skinfo *info, const char *result,
 {
     const char *route = info->route ? info->route : "unknown";
 
+    if (!info->access_log)
+        return;
+
     if (reason && *reason) {
         loglv1("Access: target=%s:%u proto=%s route=%s result=%s reason=%s",
                info->addr, (unsigned)info->port, info->proto, route, result,
@@ -192,6 +195,9 @@ void skutils_close_unreg(struct skinfo *info, struct loopctx *loop, int *sfd)
         logwarn("skutils_close_unreg: close fd failed: %s", strerror(errno));
 
     *sfd = -1;
+
+    if (!info->access_log)
+        return;
 
     loglv1("Access: target=%s:%u proto=%s route=%s result=closed sent=%zu "
            "received=%zu", info->addr, (unsigned)info->port, info->proto,

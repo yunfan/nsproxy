@@ -790,6 +790,7 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
     self->info.addr = self->addr;
     self->info.port = self->port;
     self->info.route = "socks5";
+    self->info.access_log = self->type != UDP_ASSOCIATE;
 
     if (type == UDP_FORWARD) {
         /* create socket and bind to relay server */

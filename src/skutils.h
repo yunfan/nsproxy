@@ -45,6 +45,7 @@ struct skinfo {
     const char *addr;
     uint16_t port;
     const char *route;
+    uint8_t access_log;
 };
 
 void skutils_access_log(struct skinfo *info, const char *result,
