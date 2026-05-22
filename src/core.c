@@ -864,12 +864,14 @@ static void udp_assoc_io_event(void *userp, unsigned int events)
     for (fwd = core->udplst; fwd;) {
         struct udp_pcb *pcb = fwd->pcb;
         char ip[IPADDR_STRLEN_MAX + 1];
+        struct udp_forward *next;
 
         if (fwd->proxy) { /* not pending */
             fwd = fwd->next;
             continue;
         }
 
+        next = fwd->next;
         ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
         const char *route;
         if (is_direct_cidr_target(&pcb->local_ip)) {
@@ -882,7 +884,6 @@ static void udp_assoc_io_event(void *userp, unsigned int events)
                                           ip, pcb->local_port, core->udpassoc);
         }
         if (fwd->proxy == NULL) {
-            struct udp_forward *next = fwd->next; /* save next in linked-list */
             loglv1("Access: target=%s:%u proto=udp route=%s result=failed "
                    "reason=route-unavailable", ip, (unsigned)pcb->local_port,
                    route);
@@ -891,7 +892,12 @@ static void udp_assoc_io_event(void *userp, unsigned int events)
             continue;
         }
 
-        fwd = fwd->next;
+        if (fwd->nrcvq > 0 && udp_proxy_output(fwd) != ERR_OK) {
+            fwd = next;
+            continue;
+        }
+
+        fwd = next;
     }
 }
 
